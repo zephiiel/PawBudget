@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f5f2">
+    <title>Ledger — Monthly money tracker</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#" aria-label="Ledger home">
+          <span class="brand-mark" aria-hidden="true">L</span>
+          <span>ledger<span class="brand-period">.</span></span>
+        </a>
+
+        <div class="nav-label">Workspace</div>
+        <nav class="primary-nav" aria-label="Main navigation">
+          <button class="nav-link is-active" type="button" data-page="overview">
+            <span class="nav-icon" aria-hidden="true">◫</span>
+            <span>Overview</span>
+          </button>
+          <button class="nav-link" type="button" data-page="transactions">
+            <span class="nav-icon" aria-hidden="true">≡</span>
+            <span>All transactions</span>
+          </button>
+          <button class="nav-link" type="button" data-page="pending">
+            <span class="nav-icon" aria-hidden="true">↗</span>
+            <span>Pending payments</span>
+            <span class="nav-count" id="pending-nav-count">0</span>
+          </button>
+          <button class="nav-link" type="button" data-page="budgets">
+            <span class="nav-icon" aria-hidden="true">▤</span>
+            <span>Budgets</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-bottom">
+          <button class="sidebar-settings-button" id="manage-data-button" type="button" aria-label="Settings and lists">
+            <span class="nav-icon" aria-hidden="true">⚙</span>
+            <span>Settings &amp; lists</span>
+          </button>
+          <div class="offline-indicator" role="status" aria-live="polite">
+            <span></span><span id="save-status">Loading saved data…</span>
+          </div>
+          <p>Changes save automatically on this device.</p>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div class="mobile-brand"><span class="brand-mark" aria-hidden="true">L</span> ledger<span class="brand-period">.</span></div>
+          <div class="topbar-actions">
+            <span class="mobile-save-status" id="mobile-save-status" role="status" aria-live="polite" aria-label="All changes saved"><span aria-hidden="true">●</span> Saved</span>
+            <button class="button button-quiet" id="add-budget-button" type="button">
+              <span aria-hidden="true">+</span><span>Add budget</span>
+            </button>
+            <button class="button button-primary" id="add-transaction-button" type="button">
+              <span aria-hidden="true">+</span><span>Add transaction</span>
+            </button>
+          </div>
+        </header>
+
+        <div class="alert" id="app-alert" role="alert" hidden></div>
+
+        <section class="page is-visible" id="overview-page" aria-labelledby="overview-title">
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">YOUR MONEY, IN FOCUS</p>
+              <h1 id="overview-title">Monthly overview</h1>
+              <p class="page-subtitle">A clear picture of where your money went this billing period.</p>
+            </div>
+            <div class="month-picker" aria-label="Choose billing period">
+              <button class="icon-button" id="previous-month" type="button" aria-label="Previous billing period">←</button>
+              <span id="current-month-label"></span>
+              <button class="icon-button" id="next-month" type="button" aria-label="Next billing period">→</button>
+            </div>
+          </div>
+
+          <div class="summary-grid">
+            <article class="summary-card summary-card-budget">
+              <div class="summary-topline"><span>Total budget</span><span class="summary-symbol" aria-hidden="true">▤</span></div>
+              <div class="summary-amount" id="total-budget">₱0.00</div>
+              <p>Assigned for this billing period</p>
+            </article>
+            <article class="summary-card summary-card-dark">
+              <div class="summary-topline"><span>Total used</span><span class="summary-symbol" aria-hidden="true">↗</span></div>
+              <div class="summary-amount" id="total-used">₱0.00</div>
+              <p>Paid and credit spending this billing period</p>
+            </article>
+            <article class="summary-card">
+              <div class="summary-topline"><span>Paid directly</span><span class="summary-symbol" aria-hidden="true">✓</span></div>
+              <div class="summary-amount" id="paid-used">₱0.00</div>
+              <p>Debit, cash, and other paid purchases</p>
+            </article>
+            <article class="summary-card">
+              <div class="summary-topline"><span>Credit used</span><span class="summary-symbol" aria-hidden="true">◌</span></div>
+              <div class="summary-amount" id="credit-used">₱0.00</div>
+              <p id="credit-used-caption">Charged to your credit accounts</p>
+            </article>
+          </div>
+
+          <div class="section-heading">
+            <div>
+              <h2>Your spending</h2>
+              <p>Understand the shape of your billing period.</p>
+            </div>
+          </div>
+
+          <div class="charts-grid">
+            <article class="chart-card category-chart-card">
+              <div class="card-heading">
+                <div><h3>By category</h3><p>Share of total spending</p></div>
+                <span class="chart-menu-label">PERIOD</span>
+              </div>
+              <div class="donut-layout">
+                <div class="donut-wrap">
+                  <svg id="category-donut" viewBox="0 0 160 160" role="img" aria-label="Spending by category chart"></svg>
+                  <div class="donut-center"><span>Spent</span><strong id="donut-total">₱0</strong></div>
+                </div>
+                <div class="category-legend" id="category-legend"></div>
+              </div>
+              <div class="empty-chart" id="category-empty" hidden>No spending to show yet. Add a transaction to get started.</div>
+            </article>
+
+            <article class="chart-card">
+              <div class="card-heading">
+                <div><h3>Category breakdown</h3><p>Where your money is going</p></div>
+                <span class="chart-menu-label">PHP</span>
+              </div>
+              <div class="bar-chart" id="category-bars"></div>
+              <div class="empty-chart" id="bars-empty" hidden>Your category graph will appear here.</div>
+            </article>
+
+            <article class="chart-card accounts-chart-card">
+              <div class="card-heading">
+                <div><h3>Accounts used</h3><p>Spending by account in this billing period</p></div>
+                <span class="chart-menu-label">PHP</span>
+              </div>
+              <div class="bar-chart" id="account-bars"></div>
+              <div class="empty-chart" id="accounts-empty" hidden>No account activity to show yet.</div>
+            </article>
+          </div>
+        </section>
+
+        <section class="page" id="pending-page" aria-labelledby="pending-title" hidden>
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">KEEP THINGS UP TO DATE</p>
+              <h1 id="pending-title">Pending payments</h1>
+              <p class="page-subtitle">Track unpaid credit transactions and review ones already paid.</p>
+            </div>
+          </div>
+          <article class="pending-summary">
+            <div><span class="pending-summary-label">Total to pay</span><strong id="pending-total">₱0.00</strong></div>
+            <div class="pending-count"><strong id="pending-count">0</strong><span>pending transactions</span></div>
+          </article>
+          <section class="payment-group" aria-labelledby="unpaid-credit-title">
+            <h2 id="unpaid-credit-title">Unpaid</h2>
+            <div class="pending-list" id="pending-list"></div>
+          </section>
+          <section class="payment-group paid-credit-group" aria-labelledby="paid-credit-title">
+            <h2 id="paid-credit-title">Paid</h2>
+            <div class="pending-list" id="paid-credit-list"></div>
+          </section>
+        </section>
+
+        <section class="page" id="transactions-page" aria-labelledby="transactions-title" hidden>
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">YOUR RECORDS</p>
+              <h1 id="transactions-title">All transactions</h1>
+              <p class="page-subtitle">Review, edit, or remove your saved transactions.</p>
+            </div>
+          </div>
+          <div class="transaction-list" id="transaction-list"></div>
+        </section>
+
+        <section class="page" id="budgets-page" aria-labelledby="budgets-title" hidden>
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">PLAN YOUR SPENDING</p>
+              <h1 id="budgets-title">Budgets</h1>
+              <p class="page-subtitle">Budgets are saved for one billing period at a time.</p>
+            </div>
+            <div class="month-picker" aria-label="Choose budget billing period">
+              <button class="icon-button" id="previous-budget-period" type="button" aria-label="Previous billing period">←</button>
+              <span id="budget-period-label"></span>
+              <button class="icon-button" id="next-budget-period" type="button" aria-label="Next billing period">→</button>
+            </div>
+          </div>
+          <article class="pending-summary budget-summary">
+            <div><span class="pending-summary-label">Total budget</span><strong id="budgets-page-total">₱0.00</strong></div>
+            <div class="pending-count"><strong id="budget-entry-count">0</strong><span>budget entries</span></div>
+          </article>
+          <div class="budget-list" id="budget-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="app-dialog" id="transaction-dialog">
+      <form id="transaction-form">
+        <div class="dialog-heading">
+          <div><p class="eyebrow">TRANSACTION</p><h2 id="transaction-dialog-title">Add transaction</h2></div>
+          <button class="icon-button dialog-close" type="button" data-close="transaction-dialog" aria-label="Close">×</button>
+        </div>
+        <input type="hidden" id="transaction-id">
+        <div class="form-grid">
+          <label class="field field-wide">Description
+            <input id="transaction-description" name="description" type="text" maxlength="100" placeholder="e.g. Weekly groceries" required>
+          </label>
+          <label class="field">Date
+            <input id="transaction-date" name="date" type="date" required>
+          </label>
+          <label class="field">Amount
+            <div class="amount-input"><span>₱</span><input id="transaction-amount" name="amount" type="number" min="0.01" step="0.01" placeholder="0.00" required></div>
+          </label>
+          <label class="field">Category
+            <select id="transaction-category" name="category" required></select>
+          </label>
+          <label class="field">Account used
+            <select id="transaction-account" name="account" required></select>
+          </label>
+          <fieldset class="field field-wide payment-field">
+            <legend>Payment type</legend>
+            <div class="payment-options">
+              <label class="payment-option"><input type="radio" name="paymentType" value="paid" checked><span class="payment-option-box"><strong>Paid</strong><small>Cash, debit, or already paid</small></span></label>
+              <label class="payment-option"><input type="radio" name="paymentType" value="credit"><span class="payment-option-box"><strong>Credit</strong><small>Charged to a credit account</small></span></label>
+            </div>
+            <p class="field-hint">New credit transactions appear in Pending payments until marked paid.</p>
+          </fieldset>
+        </div>
+        <div class="dialog-actions">
+          <button class="button button-quiet" type="button" data-close="transaction-dialog">Cancel</button>
+          <button class="button button-primary" type="submit" id="save-transaction-button">Save transaction</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="app-dialog wide-dialog" id="category-transactions-dialog">
+      <div class="dialog-heading">
+        <div><p class="eyebrow">CATEGORY TRANSACTIONS</p><h2 id="category-transactions-title"></h2></div>
+        <button class="icon-button dialog-close" type="button" data-close="category-transactions-dialog" aria-label="Close">×</button>
+      </div>
+      <div class="category-transactions-list" id="category-transactions-list"></div>
+    </dialog>
+
+    <dialog class="app-dialog" id="budget-dialog">
+      <div class="dialog-heading">
+        <div><p class="eyebrow">BILLING PERIOD BUDGET</p><h2 id="budget-dialog-title">Add budget</h2></div>
+        <button class="icon-button dialog-close" type="button" data-close="budget-dialog" aria-label="Close">×</button>
+      </div>
+      <form id="budget-form">
+        <input type="hidden" id="budget-id">
+        <div class="form-grid">
+          <label class="field field-wide">Budget from (person’s name)
+            <input id="budget-person" name="person" type="text" maxlength="80" placeholder="e.g. Alex" required>
+          </label>
+          <label class="field field-wide">Amount
+            <div class="amount-input"><span>₱</span><input id="budget-amount" name="amount" type="number" min="0.01" step="0.01" placeholder="0.00" required></div>
+          </label>
+        </div>
+        <div class="dialog-actions">
+          <button class="button button-quiet" type="button" data-close="budget-dialog">Cancel</button>
+          <button class="button button-primary" type="submit" id="save-budget-button">Save budget</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="app-dialog wide-dialog" id="manage-dialog">
+      <div class="dialog-heading">
+      <div><p class="eyebrow">MAKE IT YOURS</p><h2>Settings &amp; lists</h2></div>
+        <button class="icon-button dialog-close" type="button" data-close="manage-dialog" aria-label="Close">×</button>
+      </div>
+      <section class="cycle-settings" aria-labelledby="cycle-settings-title">
+      <h3 id="cycle-settings-title">Monthly billing cycle</h3>
+      <p>Choose the day each reporting period starts. The next period starts on the same day of the next month.</p>
+      <label class="field" for="cycle-start-day">Cycle starts on
+        <select id="cycle-start-day" name="cycleStartDay"></select>
+      </label>
+      <p class="cycle-settings-hint">For short months, days 29–31 fall on that month’s last day.</p>
+      </section>
+      <section class="backup-settings" aria-labelledby="backup-settings-title">
+        <div>
+          <h3 id="backup-settings-title">Data backup</h3>
+          <p>Move your tracker between browsers or keep a backup file. Importing replaces data saved in this browser.</p>
+        </div>
+        <div class="backup-actions">
+          <button class="button button-primary" id="export-data-button" type="button">Export backup</button>
+          <button class="button button-quiet" id="import-data-button" type="button">Import backup</button>
+          <input class="visually-hidden" id="import-data-file" type="file" accept=".json,application/json">
+        </div>
+      </section>
+      <div class="manage-grid">
+        <section class="manage-section">
+          <h3>Categories</h3>
+          <form class="inline-add-form" id="add-category-form">
+            <label class="visually-hidden" for="new-category">New category name</label>
+            <input id="new-category" type="text" maxlength="40" placeholder="Add a category" required>
+            <button class="button button-primary" type="submit" aria-label="Add category">+</button>
+          </form>
+          <ul class="manage-list" id="category-list"></ul>
+        </section>
+        <section class="manage-section">
+          <h3>Accounts</h3>
+          <form class="inline-add-form" id="add-account-form">
+            <label class="visually-hidden" for="new-account">New account name</label>
+            <input id="new-account" type="text" maxlength="40" placeholder="Add an account" required>
+            <button class="button button-primary" type="submit" aria-label="Add account">+</button>
+          </form>
+          <ul class="manage-list" id="account-list"></ul>
+        </section>
+      </div>
+      <p class="manage-note">Removing a category or account only removes it from future choices. Existing transactions keep their saved names.</p>
+    </dialog>
+  </body>
+</html>
