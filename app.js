@@ -21,6 +21,7 @@ const state = {
   data: null,
   month: null,
   page: "overview",
+  selectedPendingIds: new Set(),
 };
 
 const elements = {
@@ -36,6 +37,7 @@ const elements = {
   creditUsed: document.getElementById("credit-used"),
   paidUsed: document.getElementById("paid-used"),
   totalBudget: document.getElementById("total-budget"),
+  totalBudgetCaption: document.getElementById("total-budget-caption"),
   creditUsedCaption: document.getElementById("credit-used-caption"),
   categoryDonut: document.getElementById("category-donut"),
   categoryLegend: document.getElementById("category-legend"),
@@ -45,6 +47,8 @@ const elements = {
   barsEmpty: document.getElementById("bars-empty"),
   accountBars: document.getElementById("account-bars"),
   accountsEmpty: document.getElementById("accounts-empty"),
+  yearlyChartYear: document.getElementById("yearly-chart-year"),
+  yearlySpendingChart: document.getElementById("yearly-spending-chart"),
   categoryTransactionsDialog: document.getElementById("category-transactions-dialog"),
   categoryTransactionsTitle: document.getElementById("category-transactions-title"),
   categoryTransactionsList: document.getElementById("category-transactions-list"),
@@ -53,6 +57,10 @@ const elements = {
   pendingTotal: document.getElementById("pending-total"),
   pendingCount: document.getElementById("pending-count"),
   pendingNavCount: document.getElementById("pending-nav-count"),
+  pendingSelectionBar: document.getElementById("pending-selection-bar"),
+  pendingSelectionSum: document.getElementById("pending-selection-sum"),
+  pendingSelectionCount: document.getElementById("pending-selection-count"),
+  bulkPaymentButton: document.getElementById("bulk-payment-button"),
   transactionDialog: document.getElementById("transaction-dialog"),
   transactionForm: document.getElementById("transaction-form"),
   transactionDialogTitle: document.getElementById("transaction-dialog-title"),
@@ -136,15 +144,9 @@ function renderBudgets() {
     const amount = document.createElement("span");
     amount.className = "item-amount";
     amount.textContent = formatAmount(budget.amount);
-    const editButton = document.createElement("button");
-    editButton.className = "small-action";
-    editButton.type = "button";
-    editButton.textContent = "Edit";
+    const editButton = createActionIconButton("Edit", "M12 20h9 M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z");
     editButton.addEventListener("click", () => openEditBudget(budget.id));
-    const deleteButton = document.createElement("button");
-    deleteButton.className = "small-action is-danger";
-    deleteButton.type = "button";
-    deleteButton.textContent = "Delete";
+    const deleteButton = createActionIconButton("Delete", "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 11v5 M14 11v5", true);
     deleteButton.addEventListener("click", () => deleteBudget(budget.id));
     actions.append(amount, editButton, deleteButton);
     item.append(primary, actions);
@@ -479,10 +481,12 @@ function renderAccountBars(transactions) {
   accounts.forEach(([account, amount], index) => {
     const row = document.createElement("div");
     row.className = "bar-row";
-    const name = document.createElement("span");
-    name.className = "bar-name";
+    const name = document.createElement("button");
+    name.className = "bar-name category-link";
     name.textContent = account;
     name.title = account;
+    name.type = "button";
+    name.addEventListener("click", () => openAccountTransactions(account));
     const track = document.createElement("div");
     track.className = "bar-track";
     track.setAttribute("role", "img");
@@ -500,11 +504,62 @@ function renderAccountBars(transactions) {
   });
 }
 
+function renderYearlySpending() {
+  const year = new Date().getFullYear();
+  const monthlyTotals = Array.from({ length: 12 }, () => 0);
+  const periodOffset = state.data.cycleStartDay === 1 ? 0 : -1;
+  monthlyTotals.forEach((_, index) => {
+    const start = getCycleStartDate(year, index + periodOffset);
+    const nextStart = getCycleStartDate(year, index + periodOffset + 1);
+    const startDate = localDateString(start);
+    const endDate = localDateString(new Date(nextStart.getFullYear(), nextStart.getMonth(), nextStart.getDate() - 1));
+    monthlyTotals[index] = state.data.transactions
+      .filter((transaction) => transaction.date >= startDate && transaction.date <= endDate)
+      .reduce((sum, transaction) => sum + transaction.amount, 0);
+  });
+  const maxAmount = Math.max(...monthlyTotals);
+  const monthFormatter = new Intl.DateTimeFormat("en-PH", { month: "short" });
+  elements.yearlyChartYear.textContent = String(year);
+  elements.yearlySpendingChart.replaceChildren();
+  elements.yearlySpendingChart.setAttribute("aria-label", `Monthly billing-period spending for ${year}`);
+
+  monthlyTotals.forEach((amount, index) => {
+    const monthName = monthFormatter.format(new Date(year, index, 1));
+    const column = document.createElement("div");
+    column.className = "year-chart-month";
+    column.setAttribute("role", "img");
+    column.setAttribute("aria-label", `${monthName} ${year} billing period: ${formatAmount(amount)}`);
+    column.title = `${monthName} ${year} billing period: ${formatAmount(amount)}`;
+    const value = document.createElement("span");
+    value.className = "year-chart-value";
+    value.textContent = compactFormatter.format(amount);
+    const track = document.createElement("div");
+    track.className = "year-chart-track";
+    const bar = document.createElement("div");
+    bar.className = "year-chart-fill";
+    bar.style.height = maxAmount > 0 ? `${(amount / maxAmount) * 100}%` : "0%";
+    track.append(bar);
+    const label = document.createElement("span");
+    label.className = "year-chart-label";
+    label.textContent = monthName;
+    column.append(value, track, label);
+    elements.yearlySpendingChart.append(column);
+  });
+}
+
 function openCategoryTransactions(category) {
+  openPeriodTransactions(category, (transaction) => transaction.category === category);
+}
+
+function openAccountTransactions(account) {
+  openPeriodTransactions(account, (transaction) => transaction.account === account);
+}
+
+function openPeriodTransactions(title, matches) {
   const transactions = getMonthTransactions()
-    .filter((transaction) => transaction.category === category)
+    .filter(matches)
     .sort((a, b) => b.date.localeCompare(a.date));
-  elements.categoryTransactionsTitle.textContent = category;
+  elements.categoryTransactionsTitle.textContent = title;
   elements.categoryTransactionsList.replaceChildren();
   for (const transaction of transactions) {
     const item = document.createElement("article");
@@ -543,11 +598,14 @@ function renderOverview() {
   elements.totalUsed.textContent = formatAmount(total);
   elements.creditUsed.textContent = formatAmount(creditTotal);
   elements.paidUsed.textContent = formatAmount(paidTotal);
-  elements.totalBudget.textContent = formatAmount(getPeriodBudgets().reduce((sum, budget) => sum + budget.amount, 0));
+  const budgetTotal = getPeriodBudgets().reduce((sum, budget) => sum + budget.amount, 0);
+  elements.totalBudget.textContent = formatAmount(budgetTotal - total);
+  elements.totalBudgetCaption.textContent = `${formatAmount(budgetTotal)} budget for this billing period`;
   const pendingCredit = creditTransactions.filter((item) => !item.isPaid).length;
   elements.creditUsedCaption.textContent = `${pendingCredit} still pending · all credit purchases`;
   renderCategories(transactions);
   renderAccountBars(transactions);
+  renderYearlySpending();
 }
 
 function createEmptyState(title, message, buttonLabel, action) {
@@ -579,6 +637,8 @@ function renderPending() {
     .sort((a, b) => b.date.localeCompare(a.date));
   const pending = creditTransactions.filter((transaction) => !transaction.isPaid);
   const paid = creditTransactions.filter((transaction) => transaction.isPaid);
+  const creditIds = new Set(creditTransactions.map((transaction) => transaction.id));
+  state.selectedPendingIds = new Set([...state.selectedPendingIds].filter((id) => creditIds.has(id)));
   const total = pending.reduce((sum, item) => sum + item.amount, 0);
   elements.pendingTotal.textContent = formatAmount(total);
   elements.pendingCount.textContent = String(pending.length);
@@ -586,6 +646,7 @@ function renderPending() {
   elements.pendingNavCount.hidden = pending.length === 0;
   elements.pendingList.replaceChildren();
   elements.paidCreditList.replaceChildren();
+  renderPendingSelectionBar();
 
   if (!creditTransactions.length) {
     elements.pendingList.append(createEmptyState("No credit transactions yet", "Credit transactions will appear here until you mark them paid.", "Add a transaction", openNewTransaction));
@@ -604,6 +665,18 @@ function renderPending() {
 function createCreditPaymentItem(transaction) {
   const item = document.createElement("article");
   item.className = "pending-item";
+  item.classList.toggle("is-selected", state.selectedPendingIds.has(transaction.id));
+  const checkbox = document.createElement("input");
+  checkbox.className = "transaction-select-checkbox";
+  checkbox.type = "checkbox";
+  checkbox.checked = state.selectedPendingIds.has(transaction.id);
+  checkbox.setAttribute("aria-label", `Select ${transaction.description}`);
+  checkbox.addEventListener("change", () => {
+    if (checkbox.checked) state.selectedPendingIds.add(transaction.id);
+    else state.selectedPendingIds.delete(transaction.id);
+    item.classList.toggle("is-selected", checkbox.checked);
+    renderPendingSelectionBar();
+  });
   const primary = document.createElement("div");
   primary.className = "item-primary";
   const mark = document.createElement("span");
@@ -628,8 +701,21 @@ function createCreditPaymentItem(transaction) {
   paidButton.textContent = transaction.isPaid ? "Mark as unpaid" : "Mark as paid";
   paidButton.addEventListener("click", () => setCreditPaidState(transaction.id, !transaction.isPaid));
   actions.append(amount, paidButton);
-  item.append(primary, actions);
+  item.append(checkbox, primary, actions);
   return item;
+}
+
+function renderPendingSelectionBar() {
+  const selected = state.data.transactions.filter((transaction) =>
+    state.selectedPendingIds.has(transaction.id) && transaction.paymentType === "credit"
+  );
+  const count = selected.length;
+  elements.pendingSelectionBar.hidden = count === 0;
+  elements.pendingSelectionSum.textContent = formatAmount(selected.reduce((sum, transaction) => sum + transaction.amount, 0));
+  elements.pendingSelectionCount.textContent = String(count);
+  elements.bulkPaymentButton.textContent = selected.length > 0 && selected.every((transaction) => transaction.isPaid)
+    ? "Mark selected as unpaid"
+    : "Mark selected as paid";
 }
 
 function renderTransactionList() {
@@ -661,20 +747,37 @@ function renderTransactionList() {
     const amount = document.createElement("span");
     amount.className = "item-amount";
     amount.textContent = formatAmount(transaction.amount);
-    const editButton = document.createElement("button");
-    editButton.className = "small-action";
-    editButton.type = "button";
-    editButton.textContent = "Edit";
+    const editButton = createActionIconButton("Edit", "M12 20h9 M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z");
     editButton.addEventListener("click", () => openEditTransaction(transaction.id));
-    const deleteButton = document.createElement("button");
-    deleteButton.className = "small-action is-danger";
-    deleteButton.type = "button";
-    deleteButton.textContent = "Delete";
+    const deleteButton = createActionIconButton("Delete", "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 11v5 M14 11v5", true);
     deleteButton.addEventListener("click", () => deleteTransaction(transaction.id));
     actions.append(amount, editButton, deleteButton);
     item.append(primary, actions);
     elements.transactionList.append(item);
   }
+}
+
+function createActionIconButton(label, pathData, isDanger = false) {
+  const button = document.createElement("button");
+  button.className = `small-action icon-action${isDanger ? " is-danger" : ""}`;
+  button.type = "button";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("width", "16");
+  icon.setAttribute("height", "16");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-width", "1.7");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  icon.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", pathData);
+  icon.append(path);
+  button.append(icon);
+  return button;
 }
 
 function appendOption(select, value, label) {
@@ -778,6 +881,22 @@ function setCreditPaidState(id, isPaid) {
       : transaction
   );
   if (saveData({ ...state.data, transactions })) updateAll();
+}
+
+function setSelectedCreditPaidState() {
+  const selected = state.data.transactions.filter((transaction) =>
+    state.selectedPendingIds.has(transaction.id) && transaction.paymentType === "credit"
+  );
+  if (!selected.length) return;
+  const isPaid = !selected.every((transaction) => transaction.isPaid);
+  const selectedIds = new Set(selected.map((transaction) => transaction.id));
+  const transactions = state.data.transactions.map((transaction) =>
+    selectedIds.has(transaction.id) ? { ...transaction, isPaid } : transaction
+  );
+  if (saveData({ ...state.data, transactions })) {
+    state.selectedPendingIds.clear();
+    updateAll();
+  }
 }
 
 function deleteTransaction(id) {
@@ -976,6 +1095,11 @@ document.getElementById("next-budget-period").addEventListener("click", () => {
   renderBudgets();
 });
 elements.transactionForm.addEventListener("submit", submitTransaction);
+elements.bulkPaymentButton.addEventListener("click", setSelectedCreditPaidState);
+document.getElementById("clear-pending-selection").addEventListener("click", () => {
+  state.selectedPendingIds.clear();
+  renderPending();
+});
 document.getElementById("add-category-form").addEventListener("submit", (event) => {
   event.preventDefault();
   const input = document.getElementById("new-category");

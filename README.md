@@ -17,10 +17,11 @@ The first launch seeds a small example set so the dashboard is immediately visib
 ## Using the tracker
 
 - Use the period arrows to view paid and credit spending and category graphs for a billing period.
-- Click a category in the spending charts to see its transactions for the selected billing period. The overview also charts spending by account.
+- Click a category or account in the spending charts to see its transactions for the selected billing period. The overview also includes a month-by-month spending graph grouped by billing period and labeled by the month each period ends.
+- The monthly overview shows the remaining budget after period spending, with the original budget and amount used in the caption.
 - Open **Settings & lists** to choose the monthly billing-cycle start day (1st–31st). The next period starts on the same day next month, and the selected dashboard period runs through the day before it. For short months, a start day that does not exist falls on that month's last day.
 - Add a transaction with its date, description, category, amount, account, and payment type.
-- New credit transactions start as pending. Open **Pending payments** to mark one as paid or unpaid; paid credit transactions are listed below unpaid ones.
+- New credit transactions start as pending. Open **Pending payments** to mark one as paid or unpaid; select multiple transactions to see their combined total and mark them all paid or unpaid. Paid credit transactions are listed below unpaid ones.
 - Open **All transactions** in the sidebar to review, edit, or delete transaction records.
 - Add a budget with a person's name and amount. Budgets apply only to the selected billing period; review, edit, or delete them on the **Budgets** sidebar page. The monthly overview shows the selected period's total budget.
 - Open **Settings & lists** to add or remove categories and accounts and set the billing-cycle start day. Removing a category or account does not change names saved on existing transactions.

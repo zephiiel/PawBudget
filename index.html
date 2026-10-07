@@ -81,9 +81,9 @@
 
           <div class="summary-grid">
             <article class="summary-card summary-card-budget">
-              <div class="summary-topline"><span>Total budget</span><span class="summary-symbol" aria-hidden="true">▤</span></div>
+              <div class="summary-topline"><span>Budget Remaining</span><span class="summary-symbol" aria-hidden="true">▤</span></div>
               <div class="summary-amount" id="total-budget">₱0.00</div>
-              <p>Assigned for this billing period</p>
+              <p id="total-budget-caption">₱0.00 budget for this billing period</p>
             </article>
             <article class="summary-card summary-card-dark">
               <div class="summary-topline"><span>Total used</span><span class="summary-symbol" aria-hidden="true">↗</span></div>
@@ -142,6 +142,16 @@
               <div class="bar-chart" id="account-bars"></div>
               <div class="empty-chart" id="accounts-empty" hidden>No account activity to show yet.</div>
             </article>
+
+            <article class="chart-card yearly-chart-card">
+              <div class="card-heading">
+                <div><h3>Spending this year · <span id="yearly-chart-year"></span></h3><p>Monthly totals grouped by billing period</p></div>
+                <span class="chart-menu-label">PHP</span>
+              </div>
+              <div class="year-chart-scroll">
+                <div class="year-chart" id="yearly-spending-chart" role="group" aria-label="Monthly billing-period spending for the current year"></div>
+              </div>
+            </article>
           </div>
         </section>
 
@@ -165,6 +175,14 @@
             <h2 id="paid-credit-title">Paid</h2>
             <div class="pending-list" id="paid-credit-list"></div>
           </section>
+          <aside class="pending-selection-bar" id="pending-selection-bar" aria-live="polite" hidden>
+            <div class="pending-selection-total">
+              <strong id="pending-selection-sum">₱0.00</strong>
+              <span><span id="pending-selection-count">0</span> selected</span>
+            </div>
+            <button class="button button-quiet" id="clear-pending-selection" type="button">Clear</button>
+            <button class="button button-primary" id="bulk-payment-button" type="button">Mark selected as paid</button>
+          </aside>
         </section>
 
         <section class="page" id="transactions-page" aria-labelledby="transactions-title" hidden>
@@ -241,7 +259,7 @@
 
     <dialog class="app-dialog wide-dialog" id="category-transactions-dialog">
       <div class="dialog-heading">
-        <div><p class="eyebrow">CATEGORY TRANSACTIONS</p><h2 id="category-transactions-title"></h2></div>
+        <div><p class="eyebrow">BILLING PERIOD TRANSACTIONS</p><h2 id="category-transactions-title"></h2></div>
         <button class="icon-button dialog-close" type="button" data-close="category-transactions-dialog" aria-label="Close">×</button>
       </div>
       <div class="category-transactions-list" id="category-transactions-list"></div>
