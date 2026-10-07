@@ -18,20 +18,20 @@
 
         <div class="nav-label">Workspace</div>
         <nav class="primary-nav" aria-label="Main navigation">
-          <button class="nav-link is-active" type="button" data-page="overview">
+          <button class="nav-link is-active" type="button" data-page="overview" aria-label="Overview">
             <span class="nav-icon" aria-hidden="true">◫</span>
             <span>Overview</span>
           </button>
-          <button class="nav-link" type="button" data-page="transactions">
+          <button class="nav-link" type="button" data-page="transactions" aria-label="All transactions">
             <span class="nav-icon" aria-hidden="true">≡</span>
             <span>All transactions</span>
           </button>
-          <button class="nav-link" type="button" data-page="pending">
-            <span class="nav-icon" aria-hidden="true">↗</span>
+          <button class="nav-link" type="button" data-page="pending" aria-label="Pending payments">
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"></circle><path d="M12 8v4l3 2"></path></svg></span>
             <span>Pending payments</span>
             <span class="nav-count" id="pending-nav-count">0</span>
           </button>
-          <button class="nav-link" type="button" data-page="budgets">
+          <button class="nav-link" type="button" data-page="budgets" aria-label="Budgets">
             <span class="nav-icon" aria-hidden="true">▤</span>
             <span>Budgets</span>
           </button>
@@ -180,8 +180,10 @@
               <strong id="pending-selection-sum">₱0.00</strong>
               <span><span id="pending-selection-count">0</span> selected</span>
             </div>
-            <button class="button button-quiet" id="clear-pending-selection" type="button">Clear</button>
-            <button class="button button-primary" id="bulk-payment-button" type="button">Mark selected as paid</button>
+            <div class="pending-selection-actions">
+              <button class="button button-primary" id="bulk-payment-button" type="button">Mark selected as paid</button>
+              <button class="button button-quiet" id="clear-pending-selection" type="button">Clear</button>
+            </div>
           </aside>
         </section>
 
@@ -292,14 +294,6 @@
       <div><p class="eyebrow">MAKE IT YOURS</p><h2>Settings &amp; lists</h2></div>
         <button class="icon-button dialog-close" type="button" data-close="manage-dialog" aria-label="Close">×</button>
       </div>
-      <section class="cycle-settings" aria-labelledby="cycle-settings-title">
-      <h3 id="cycle-settings-title">Monthly billing cycle</h3>
-      <p>Choose the day each reporting period starts. The next period starts on the same day of the next month.</p>
-      <label class="field" for="cycle-start-day">Cycle starts on
-        <select id="cycle-start-day" name="cycleStartDay"></select>
-      </label>
-      <p class="cycle-settings-hint">For short months, days 29–31 fall on that month’s last day.</p>
-      </section>
       <section class="backup-settings" aria-labelledby="backup-settings-title">
         <div>
           <h3 id="backup-settings-title">Data backup</h3>
@@ -310,26 +304,39 @@
           <button class="button button-quiet" id="import-data-button" type="button">Import backup</button>
           <input class="visually-hidden" id="import-data-file" type="file" accept=".json,application/json">
         </div>
+        <p class="backup-status" id="backup-status" role="status" aria-live="polite" hidden></p>
+      </section>
+      <section class="cycle-settings" aria-labelledby="cycle-settings-title">
+      <h3 id="cycle-settings-title">Monthly billing cycle</h3>
+      <p>Choose the day each reporting period starts. The next period starts on the same day of the next month.</p>
+      <label class="field" for="cycle-start-day">Cycle starts on
+        <select id="cycle-start-day" name="cycleStartDay"></select>
+      </label>
+      <p class="cycle-settings-hint">For short months, days 29–31 fall on that month’s last day.</p>
       </section>
       <div class="manage-grid">
-        <section class="manage-section">
-          <h3>Categories</h3>
-          <form class="inline-add-form" id="add-category-form">
-            <label class="visually-hidden" for="new-category">New category name</label>
-            <input id="new-category" type="text" maxlength="40" placeholder="Add a category" required>
-            <button class="button button-primary" type="submit" aria-label="Add category">+</button>
-          </form>
-          <ul class="manage-list" id="category-list"></ul>
-        </section>
-        <section class="manage-section">
-          <h3>Accounts</h3>
-          <form class="inline-add-form" id="add-account-form">
-            <label class="visually-hidden" for="new-account">New account name</label>
-            <input id="new-account" type="text" maxlength="40" placeholder="Add an account" required>
-            <button class="button button-primary" type="submit" aria-label="Add account">+</button>
-          </form>
-          <ul class="manage-list" id="account-list"></ul>
-        </section>
+        <details class="manage-section">
+          <summary class="manage-section-toggle"><span>Categories</span><span>Edit categories</span></summary>
+          <div class="manage-section-content">
+            <form class="inline-add-form" id="add-category-form">
+              <label class="visually-hidden" for="new-category">New category name</label>
+              <input id="new-category" type="text" maxlength="40" placeholder="Add a category" required>
+              <button class="button button-primary" type="submit" aria-label="Add category">+</button>
+            </form>
+            <ul class="manage-list" id="category-list"></ul>
+          </div>
+        </details>
+        <details class="manage-section">
+          <summary class="manage-section-toggle"><span>Accounts</span><span>Edit accounts</span></summary>
+          <div class="manage-section-content">
+            <form class="inline-add-form" id="add-account-form">
+              <label class="visually-hidden" for="new-account">New account name</label>
+              <input id="new-account" type="text" maxlength="40" placeholder="Add an account" required>
+              <button class="button button-primary" type="submit" aria-label="Add account">+</button>
+            </form>
+            <ul class="manage-list" id="account-list"></ul>
+          </div>
+        </details>
       </div>
       <p class="manage-note">Removing a category or account only removes it from future choices. Existing transactions keep their saved names.</p>
     </dialog>

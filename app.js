@@ -1,5 +1,9 @@
 "use strict";
 
+if (window.Capacitor?.isNativePlatform()) {
+  document.documentElement.classList.add("native-app");
+}
+
 const STORAGE_KEY = "ledger.monthly-tracker.v1";
 const CHART_COLORS = ["#171717", "#555552", "#888883", "#b7b7b1", "#d8d8d2"];
 const formatter = new Intl.NumberFormat("en-PH", {
@@ -87,6 +91,7 @@ const elements = {
   cycleStartDay: document.getElementById("cycle-start-day"),
   categoryList: document.getElementById("category-list"),
   accountList: document.getElementById("account-list"),
+  backupStatus: document.getElementById("backup-status"),
 };
 
 function localDateString(date) {
@@ -997,22 +1002,42 @@ function removeOption(type, value) {
   renderManageLists();
 }
 
-function exportData() {
+async function exportData() {
   const backup = {
     format: "ledger-monthly-tracker",
     version: 1,
     exportedAt: new Date().toISOString(),
     data: state.data,
   };
-  const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+  const contents = JSON.stringify(backup, null, 2);
+  const fileName = `ledger-backup-${localDateString(new Date())}.json`;
+  elements.backupStatus.hidden = true;
+  elements.backupStatus.classList.remove("is-error");
+  if (window.ledgerNative) {
+    try {
+      await window.ledgerNative.exportBackup(fileName, contents);
+      elements.backupStatus.textContent = "Choose an app or save location in the Android share sheet.";
+      elements.backupStatus.hidden = false;
+      return;
+    } catch (error) {
+      elements.backupStatus.textContent = `Could not export backup. ${error.message || "Try again or use the browser version to download a backup."}`;
+      elements.backupStatus.classList.add("is-error");
+      elements.backupStatus.hidden = false;
+      showAlert(`Could not export backup. ${error.message || "Try again or use the browser version to download a backup."}`);
+      return;
+    }
+  }
+  const blob = new Blob([contents], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `ledger-backup-${localDateString(new Date())}.json`;
+  link.download = fileName;
   document.body.append(link);
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  elements.backupStatus.textContent = "Backup download started.";
+  elements.backupStatus.hidden = false;
 }
 
 async function importData(file) {

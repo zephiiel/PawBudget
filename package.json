@@ -1,0 +1,21 @@
+{
+  "name": "ledger",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Offline-first monthly money tracker",
+  "scripts": {
+    "build": "node scripts/build-web.js",
+    "android:sync": "npm run build && cap sync android",
+    "android:open": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.3",
+    "@capacitor/core": "8.5.3",
+    "@capacitor/filesystem": "^8.1.4",
+    "@capacitor/share": "^8.0.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3",
+    "esbuild": "^0.28.2"
+  }
+}

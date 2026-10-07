@@ -14,6 +14,18 @@ Then visit `http://localhost:8000`. The app itself makes no network requests; ke
 
 The first launch seeds a small example set so the dashboard is immediately visible. You can edit or delete those transactions and manage the category and account choices from the top bar.
 
+## Build the Android app
+
+The Android version wraps the same offline web app with Capacitor. Install Android Studio with its Android SDK and JDK 21. In Android Studio, set **Settings > Build, Execution, Deployment > Build Tools > Gradle > Gradle JDK** to JDK 21, then from this folder run:
+
+```powershell
+npm install
+npm run android:sync
+npm run android:open
+```
+
+In Android Studio, wait for Gradle sync, then run the app on a connected Android device/emulator or use **Build > Build Bundle(s) / APK(s) > Build APK(s)**. The debug APK is created at `android/app/build/outputs/apk/debug/app-debug.apk`. Android **Export backup** opens the system share sheet so you can save or send the JSON file. The app stores data on the device in its app storage. Browser data does not transfer automatically; export the backup in one app and import it in the other. Uninstalling the Android app may remove its local data, so keep backups.
+
 ## Publish with GitHub Pages
 
 The `main` branch deploys the static app with GitHub Actions to [https://zephiiel.github.io/ZPHL/](https://zephiiel.github.io/ZPHL/). After the first workflow run succeeds, the link is available to visitors. Publishing requires GitHub Pages to be available for this repository and account plan; the repository remains private. Tracker data is stored in each visitor's browser and is not uploaded or shared by the site.
