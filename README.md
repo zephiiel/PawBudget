@@ -1,6 +1,6 @@
-# Ledger
+# PawBudget
 
-A minimalist monthly money tracker that runs entirely in your browser. No account, server, network connection, or third-party library is required. Transactions, budgets, categories, and accounts are saved automatically in browser storage on the current device. The app displays a save confirmation after each change; no manual save button is needed.
+A friendly monthly money tracker that runs entirely in your browser. No account, server, network connection, or third-party library is required. Transactions, budgets, categories, and accounts are saved automatically in browser storage on the current device. The app displays a save confirmation after each change; no manual save button is needed.
 
 ## Run offline
 
@@ -16,7 +16,7 @@ The first launch seeds a small example set so the dashboard is immediately visib
 
 ## Build the Android app
 
-The Android version wraps the same offline web app with Capacitor. Install Android Studio with its Android SDK and JDK 21. In Android Studio, set **Settings > Build, Execution, Deployment > Build Tools > Gradle > Gradle JDK** to JDK 21, then from this folder run:
+The Android version wraps the same offline web app with Capacitor. It uses the PawBudget logo, matching sage-and-cream splash screen, and color theme. Install Android Studio with its Android SDK and JDK 21. In Android Studio, set **Settings > Build, Execution, Deployment > Build Tools > Gradle > Gradle JDK** to JDK 21, then from this folder run:
 
 ```powershell
 npm install

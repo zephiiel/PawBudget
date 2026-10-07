@@ -5,7 +5,7 @@ if (window.Capacitor?.isNativePlatform()) {
 }
 
 const STORAGE_KEY = "ledger.monthly-tracker.v1";
-const CHART_COLORS = ["#171717", "#555552", "#888883", "#b7b7b1", "#d8d8d2"];
+const CHART_COLORS = ["#4b352d", "#4d5c51", "#acb89f", "#e9a934", "#d9c8a8"];
 const formatter = new Intl.NumberFormat("en-PH", {
   style: "currency",
   currency: "PHP",
@@ -1010,7 +1010,7 @@ async function exportData() {
     data: state.data,
   };
   const contents = JSON.stringify(backup, null, 2);
-  const fileName = `ledger-backup-${localDateString(new Date())}.json`;
+  const fileName = `pawbudget-backup-${localDateString(new Date())}.json`;
   elements.backupStatus.hidden = true;
   elements.backupStatus.classList.remove("is-error");
   if (window.ledgerNative) {
@@ -1047,7 +1047,7 @@ async function importData(file) {
       ? parsed.data
       : parsed;
     if (!isValidData(imported)) {
-      throw new Error("This file does not contain a valid Ledger backup.");
+      throw new Error("This file does not contain a valid PawBudget backup.");
     }
     if (!window.confirm("Importing this backup will replace all tracker data saved in this browser. This cannot be undone. Continue?")) return;
     const normalizedData = normalizeImportedData(imported);
@@ -1056,7 +1056,7 @@ async function importData(file) {
     updateAll();
     showAlert("Backup imported. This browser now has the data from the selected file.");
   } catch (error) {
-    showAlert(`Could not import backup. ${error.message || "Choose a valid Ledger JSON backup file."}`);
+    showAlert(`Could not import backup. ${error.message || "Choose a valid PawBudget JSON backup file."}`);
   }
 }
 

@@ -13,6 +13,7 @@ async function build() {
   for (const file of files) {
     fs.copyFileSync(path.join(root, file), path.join(output, file));
   }
+  fs.cpSync(path.join(root, "assets"), path.join(output, "assets"), { recursive: true });
 
   await esbuild.build({
     entryPoints: [path.join(__dirname, "native-bridge.js")],

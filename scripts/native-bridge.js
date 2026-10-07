@@ -10,8 +10,8 @@ window.ledgerNative = {
       mimeType: "application/json",
     });
     await Share.share({
-      title: "Ledger backup",
-      text: "Save or share your Ledger backup file.",
+      title: "PawBudget backup",
+      text: "Save or share your PawBudget backup file.",
       files: [file.uri],
       dialogTitle: "Export backup",
     });
