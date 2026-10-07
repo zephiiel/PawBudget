@@ -14,6 +14,10 @@ Then visit `http://localhost:8000`. The app itself makes no network requests; ke
 
 The first launch seeds a small example set so the dashboard is immediately visible. You can edit or delete those transactions and manage the category and account choices from the top bar.
 
+## Publish with GitHub Pages
+
+The `main` branch deploys the static app with GitHub Actions to [https://zephiiel.github.io/ZPHL/](https://zephiiel.github.io/ZPHL/). After the first workflow run succeeds, the link is available to visitors. Publishing requires GitHub Pages to be available for this repository and account plan; the repository remains private. Tracker data is stored in each visitor's browser and is not uploaded or shared by the site.
+
 ## Using the tracker
 
 - Use the period arrows to view paid and credit spending and category graphs for a billing period.
