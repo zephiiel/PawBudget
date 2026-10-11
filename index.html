@@ -307,6 +307,17 @@
         </div>
         <p class="backup-status" id="backup-status" role="status" aria-live="polite" hidden></p>
       </section>
+      <section class="backup-settings" id="android-update-settings" aria-labelledby="android-update-title" hidden>
+        <div>
+          <h3 id="android-update-title">Android app updates</h3>
+          <p>Check public GitHub Releases for a newer PawBudget APK. Android will ask you to confirm before installing.</p>
+        </div>
+        <div class="backup-actions">
+          <button class="button button-quiet" id="check-android-update-button" type="button">Check for updates</button>
+          <button class="button button-primary" id="install-android-update-button" type="button" hidden>Download and install update</button>
+        </div>
+        <p class="backup-status" id="android-update-status" role="status" aria-live="polite">Updates are checked when PawBudget starts.</p>
+      </section>
       <section class="cycle-settings" aria-labelledby="cycle-settings-title">
       <h3 id="cycle-settings-title">Monthly billing cycle</h3>
       <p>Choose the day each reporting period starts. The next period starts on the same day of the next month.</p>

@@ -26,9 +26,13 @@ npm run android:open
 
 In Android Studio, wait for Gradle sync, then run the app on a connected Android device/emulator or use **Build > Build Bundle(s) / APK(s) > Build APK(s)**. The debug APK is created at `android/app/build/outputs/apk/debug/app-debug.apk`. Android **Export backup** opens the system share sheet so you can save or send the JSON file. The app stores data on the device in its app storage. Browser data does not transfer automatically; export the backup in one app and import it in the other. Uninstalling the Android app may remove its local data, so keep backups.
 
+### Android updates
+
+The Android app checks the latest public GitHub Release when it starts and offers a download in **Settings & lists**. To publish an update, make this GitHub repository public, increase `versionCode` in `android/app/build.gradle`, set `versionName` to the matching numeric release version (for example `1.0.1`), build a signed APK, and attach the `.apk` file to a GitHub Release tagged with that version (for example `v1.0.1`). Keep using the same signing key for every APK so Android accepts it as an update. Users must allow PawBudget to install apps from this source when Android requests it and confirm the installation in Android’s package installer. Updates are never installed silently.
+
 ## Publish with GitHub Pages
 
-The `main` branch deploys the static app with GitHub Actions to [https://zephiiel.github.io/ZPHL/](https://zephiiel.github.io/ZPHL/). After the first workflow run succeeds, the link is available to visitors. Publishing requires GitHub Pages to be available for this repository and account plan; the repository remains private. Tracker data is stored in each visitor's browser and is not uploaded or shared by the site.
+The `main` branch deploys the static app with GitHub Actions to [https://zephiiel.github.io/ZPHL/](https://zephiiel.github.io/ZPHL/). After the first workflow run succeeds, the link is available to visitors. Publishing requires GitHub Pages to be available for this repository and account plan. Tracker data is stored in each visitor's browser and is not uploaded or shared by the site. Note that GitHub Releases on a private repository are not publicly downloadable; enabling the Android updater requires making the entire repository public, which also exposes its source and release assets.
 
 ## Using the tracker
 

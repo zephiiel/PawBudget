@@ -1,5 +1,8 @@
 import { Directory, Filesystem } from "@capacitor/filesystem";
 import { Share } from "@capacitor/share";
+import { registerPlugin } from "@capacitor/core";
+
+const ApkUpdater = registerPlugin("ApkUpdater");
 
 window.ledgerNative = {
   async exportBackup(fileName, contents) {
@@ -15,5 +18,11 @@ window.ledgerNative = {
       files: [file.uri],
       dialogTitle: "Export backup",
     });
+  },
+  getAppVersion() {
+    return ApkUpdater.getAppVersion();
+  },
+  installApk(url) {
+    return ApkUpdater.installApk({ url });
   },
 };

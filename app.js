@@ -26,6 +26,7 @@ const state = {
   month: null,
   page: "overview",
   selectedPendingIds: new Set(),
+  androidUpdate: null,
 };
 
 const elements = {
@@ -92,6 +93,10 @@ const elements = {
   categoryList: document.getElementById("category-list"),
   accountList: document.getElementById("account-list"),
   backupStatus: document.getElementById("backup-status"),
+  androidUpdateSettings: document.getElementById("android-update-settings"),
+  checkAndroidUpdateButton: document.getElementById("check-android-update-button"),
+  installAndroidUpdateButton: document.getElementById("install-android-update-button"),
+  androidUpdateStatus: document.getElementById("android-update-status"),
 };
 
 function localDateString(date) {
@@ -99,6 +104,20 @@ function localDateString(date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function compareTransactionsNewestFirst(first, second) {
+  const firstCreatedAt = Number.isFinite(first.createdAt) ? first.createdAt : 0;
+  const secondCreatedAt = Number.isFinite(second.createdAt) ? second.createdAt : 0;
+  return second.date.localeCompare(first.date) || secondCreatedAt - firstCreatedAt;
+}
+
+function nextTransactionCreatedAt() {
+  const latestCreatedAt = state.data.transactions.reduce(
+    (latest, transaction) => Number.isFinite(transaction.createdAt) ? Math.max(latest, transaction.createdAt) : latest,
+    0
+  );
+  return Math.max(Date.now(), latestCreatedAt + 1);
 }
 
 function getSelectedPeriodStart() {
@@ -278,6 +297,89 @@ function showAlert(message) {
 function hideAlert() {
   elements.alert.textContent = "";
   elements.alert.hidden = true;
+}
+
+function parseAppVersion(version) {
+  const match = /^v?(\d+)\.(\d+)(?:\.(\d+))?$/.exec(version);
+  if (!match) return null;
+  const parts = match.slice(1).map((part) => Number(part || 0));
+  return parts.every(Number.isSafeInteger) ? parts : null;
+}
+
+function compareAppVersions(first, second) {
+  for (let index = 0; index < 3; index += 1) {
+    if (first[index] !== second[index]) return first[index] - second[index];
+  }
+  return 0;
+}
+
+function setAndroidUpdateStatus(message) {
+  elements.androidUpdateStatus.textContent = message;
+}
+
+async function checkForAndroidUpdate() {
+  elements.checkAndroidUpdateButton.disabled = true;
+  elements.installAndroidUpdateButton.hidden = true;
+  state.androidUpdate = null;
+  setAndroidUpdateStatus("Checking GitHub for updates…");
+  try {
+    const { versionName } = await window.ledgerNative.getAppVersion();
+    const installedVersion = parseAppVersion(versionName);
+    if (!installedVersion) {
+      throw new Error(`The installed app version (${versionName}) is not in a supported numeric format.`);
+    }
+
+    const response = await fetch("https://api.github.com/repos/zephiiel/PawBudget/releases/latest", {
+      headers: { Accept: "application/vnd.github+json" },
+    });
+    if (response.status === 404) {
+      setAndroidUpdateStatus("No public GitHub release was found. Publish a release with an APK asset to enable updates.");
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(`GitHub returned HTTP ${response.status}.`);
+    }
+    const release = await response.json();
+    const releaseVersion = typeof release.tag_name === "string" ? parseAppVersion(release.tag_name) : null;
+    if (!releaseVersion) {
+      throw new Error("The latest release tag must use a numeric version such as v1.2.3.");
+    }
+    if (compareAppVersions(releaseVersion, installedVersion) <= 0) {
+      setAndroidUpdateStatus(`You’re up to date (version ${versionName}).`);
+      return;
+    }
+
+    const apk = Array.isArray(release.assets)
+      ? release.assets.find((asset) => typeof asset.name === "string" && asset.name.toLowerCase().endsWith(".apk"))
+      : null;
+    if (!apk || typeof apk.browser_download_url !== "string") {
+      setAndroidUpdateStatus(`Version ${release.tag_name} is available, but its release has no APK asset.`);
+      return;
+    }
+    state.androidUpdate = { version: release.tag_name, url: apk.browser_download_url };
+    elements.installAndroidUpdateButton.textContent = `Download and install ${release.tag_name}`;
+    elements.installAndroidUpdateButton.hidden = false;
+    setAndroidUpdateStatus(`Version ${release.tag_name} is available.`);
+    showAlert(`PawBudget ${release.tag_name} is available. Open Settings & lists to install the update.`);
+  } catch (error) {
+    setAndroidUpdateStatus(`Could not check for updates. ${error.message || "Check your internet connection and try again."}`);
+  } finally {
+    elements.checkAndroidUpdateButton.disabled = false;
+  }
+}
+
+async function installAndroidUpdate() {
+  if (!state.androidUpdate) return;
+  elements.installAndroidUpdateButton.disabled = true;
+  setAndroidUpdateStatus(`Downloading version ${state.androidUpdate.version}…`);
+  try {
+    await window.ledgerNative.installApk(state.androidUpdate.url);
+    setAndroidUpdateStatus("The Android installer opened. Follow its prompts to finish updating.");
+  } catch (error) {
+    setAndroidUpdateStatus(error.message || "Could not install the update. Try again.");
+  } finally {
+    elements.installAndroidUpdateButton.disabled = false;
+  }
 }
 
 function setSaveStatus(message) {
@@ -563,7 +665,7 @@ function openAccountTransactions(account) {
 function openPeriodTransactions(title, matches) {
   const transactions = getMonthTransactions()
     .filter(matches)
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .sort(compareTransactionsNewestFirst);
   elements.categoryTransactionsTitle.textContent = title;
   elements.categoryTransactionsList.replaceChildren();
   for (const transaction of transactions) {
@@ -639,7 +741,7 @@ function createEmptyState(title, message, buttonLabel, action) {
 function renderPending() {
   const creditTransactions = state.data.transactions
     .filter((transaction) => transaction.paymentType === "credit")
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .sort(compareTransactionsNewestFirst);
   const pending = creditTransactions.filter((transaction) => !transaction.isPaid);
   const paid = creditTransactions.filter((transaction) => transaction.isPaid);
   const creditIds = new Set(creditTransactions.map((transaction) => transaction.id));
@@ -724,7 +826,7 @@ function renderPendingSelectionBar() {
 }
 
 function renderTransactionList() {
-  const transactions = [...state.data.transactions].sort((a, b) => b.date.localeCompare(a.date));
+  const transactions = [...state.data.transactions].sort(compareTransactionsNewestFirst);
   elements.transactionList.replaceChildren();
   if (!transactions.length) {
     elements.transactionList.append(createEmptyState("No transactions yet", "Add a transaction to start building your money tracker.", "Add transaction", openNewTransaction));
@@ -863,6 +965,7 @@ function submitTransaction(event) {
   const existing = state.data.transactions.find((item) => item.id === id);
   const transaction = {
     id: id || `txn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    createdAt: existing ? existing.createdAt : nextTransactionCreatedAt(),
     date,
     description,
     category,
@@ -1102,6 +1205,8 @@ function openManageDialog() {
 
 document.getElementById("manage-data-button").addEventListener("click", openManageDialog);
 document.getElementById("add-budget-button").addEventListener("click", openNewBudget);
+elements.checkAndroidUpdateButton.addEventListener("click", checkForAndroidUpdate);
+elements.installAndroidUpdateButton.addEventListener("click", installAndroidUpdate);
 document.getElementById("export-data-button").addEventListener("click", exportData);
 document.getElementById("import-data-button").addEventListener("click", () => document.getElementById("import-data-file").click());
 document.getElementById("import-data-file").addEventListener("change", (event) => {
@@ -1146,4 +1251,8 @@ document.querySelectorAll("[data-close]").forEach((button) => {
 if (loadData()) {
   updateAll();
   setPage("overview");
+  if (window.Capacitor?.getPlatform() === "android") {
+    elements.androidUpdateSettings.hidden = false;
+    checkForAndroidUpdate();
+  }
 }
