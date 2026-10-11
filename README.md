@@ -28,7 +28,7 @@ In Android Studio, wait for Gradle sync, then run the app on a connected Android
 
 ### Android updates
 
-The Android app checks the latest public GitHub Release when it starts and offers a download in **Settings & lists**. To publish an update, make this GitHub repository public, increase `versionCode` in `android/app/build.gradle`, set `versionName` to the matching numeric release version (for example `1.0.1`), build a signed APK, and attach the `.apk` file to a GitHub Release tagged with that version (for example `v1.0.1`). Keep using the same signing key for every APK so Android accepts it as an update. Users must allow PawBudget to install apps from this source when Android requests it and confirm the installation in Android’s package installer. Updates are never installed silently.
+The Android app checks the latest public GitHub Release when it starts and offers a download in **Settings & lists**. The current app version is `1.3` (`versionCode` 4). To publish it, make this GitHub repository public, build a signed APK, and attach the `.apk` file to a GitHub Release tagged `v1.3`. For future releases, increment `versionCode` and set `versionName` to match the numeric release tag. Keep using the same signing key for every APK so Android accepts it as an update. Users must allow PawBudget to install apps from this source when Android requests it and confirm the installation in Android’s package installer. Updates are never installed silently.
 
 ## Publish with GitHub Pages
 
@@ -36,7 +36,7 @@ The `main` branch deploys the static app with GitHub Actions to [https://zephiie
 
 ## Using the tracker
 
-- Use the period arrows to view paid and credit spending and category graphs for a billing period.
+- Use the billing-period arrows below the top bar to choose a period. The selection is shared by the overview, budgets, all transactions, and pending payments; the latter two show only entries dated in the selected period.
 - Click a category or account in the spending charts to see its transactions for the selected billing period. The overview also includes a month-by-month spending graph grouped by billing period and labeled by the month each period ends.
 - The monthly overview shows the remaining budget after period spending, with the original budget and amount used in the caption.
 - Open **Settings & lists** to choose the monthly billing-cycle start day (1st–31st). The next period starts on the same day next month, and the selected dashboard period runs through the day before it. For short months, a start day that does not exist falls on that month's last day.

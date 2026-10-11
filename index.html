@@ -56,13 +56,21 @@
           <div class="topbar-actions">
             <span class="mobile-save-status" id="mobile-save-status" role="status" aria-live="polite" aria-label="All changes saved"><span aria-hidden="true">●</span> Saved</span>
             <button class="button button-quiet" id="add-budget-button" type="button">
-              <span aria-hidden="true">+</span><span>Add budget</span>
+              <span aria-hidden="true">+</span><span>Budget</span>
             </button>
             <button class="button button-primary" id="add-transaction-button" type="button">
-              <span aria-hidden="true">+</span><span>Add transaction</span>
+              <span aria-hidden="true">+</span><span>Transaction</span>
             </button>
           </div>
         </header>
+
+        <div class="billing-period-toolbar">
+          <div class="month-picker" aria-label="Choose billing period">
+            <button class="icon-button" id="previous-period" type="button" aria-label="Previous billing period">←</button>
+            <span id="billing-period-label"></span>
+            <button class="icon-button" id="next-period" type="button" aria-label="Next billing period">→</button>
+          </div>
+        </div>
 
         <div class="alert" id="app-alert" role="alert" hidden></div>
 
@@ -72,11 +80,6 @@
               <p class="eyebrow">YOUR MONEY, IN FOCUS</p>
               <h1 id="overview-title">Monthly overview</h1>
               <p class="page-subtitle">A clear picture of where your money went this billing period.</p>
-            </div>
-            <div class="month-picker" aria-label="Choose billing period">
-              <button class="icon-button" id="previous-month" type="button" aria-label="Previous billing period">←</button>
-              <span id="current-month-label"></span>
-              <button class="icon-button" id="next-month" type="button" aria-label="Next billing period">→</button>
             </div>
           </div>
 
@@ -206,11 +209,6 @@
               <h1 id="budgets-title">Budgets</h1>
               <p class="page-subtitle">Budgets are saved for one billing period at a time.</p>
             </div>
-            <div class="month-picker" aria-label="Choose budget billing period">
-              <button class="icon-button" id="previous-budget-period" type="button" aria-label="Previous billing period">←</button>
-              <span id="budget-period-label"></span>
-              <button class="icon-button" id="next-budget-period" type="button" aria-label="Next billing period">→</button>
-            </div>
           </div>
           <article class="pending-summary budget-summary">
             <div><span class="pending-summary-label">Total budget</span><strong id="budgets-page-total">₱0.00</strong></div>
@@ -295,9 +293,45 @@
       <div><p class="eyebrow">MAKE IT YOURS</p><h2>Settings &amp; lists</h2></div>
         <button class="icon-button dialog-close" type="button" data-close="manage-dialog" aria-label="Close">×</button>
       </div>
+      <section class="cycle-settings" aria-labelledby="cycle-settings-title">
+        <h3 id="cycle-settings-title">Monthly billing cycle</h3>
+        <p>Choose the day each reporting period starts. The next period starts on the same day of the next month.</p>
+        <label class="field" for="cycle-start-day">Cycle starts on
+          <select id="cycle-start-day" name="cycleStartDay"></select>
+        </label>
+        <p class="cycle-settings-hint">For short months, days 29–31 fall on that month’s last day.</p>
+      </section>
+      <section class="lists-settings" aria-labelledby="manage-lists-title">
+        <h3 id="manage-lists-title">Edit Categories and Accounts</h3>
+        <div class="manage-grid">
+          <details class="manage-section">
+            <summary class="manage-section-toggle"><span>Categories</span><span>Edit categories</span></summary>
+            <div class="manage-section-content">
+              <form class="inline-add-form" id="add-category-form">
+                <label class="visually-hidden" for="new-category">New category name</label>
+                <input id="new-category" type="text" maxlength="40" placeholder="Add a category" required>
+                <button class="button button-primary" type="submit" aria-label="Add category">+</button>
+              </form>
+              <ul class="manage-list" id="category-list"></ul>
+            </div>
+          </details>
+          <details class="manage-section">
+            <summary class="manage-section-toggle"><span>Accounts</span><span>Edit accounts</span></summary>
+            <div class="manage-section-content">
+              <form class="inline-add-form" id="add-account-form">
+                <label class="visually-hidden" for="new-account">New account name</label>
+                <input id="new-account" type="text" maxlength="40" placeholder="Add an account" required>
+                <button class="button button-primary" type="submit" aria-label="Add account">+</button>
+              </form>
+              <ul class="manage-list" id="account-list"></ul>
+            </div>
+          </details>
+        </div>
+        <p class="manage-note">Removing a category or account only removes it from future choices. Existing transactions keep their saved names.</p>
+      </section>
       <section class="backup-settings" aria-labelledby="backup-settings-title">
         <div>
-          <h3 id="backup-settings-title">Data backup</h3>
+          <h3 id="backup-settings-title">Data Backup</h3>
           <p>Move your tracker between browsers or keep a backup file. Importing replaces data saved in this browser.</p>
         </div>
         <div class="backup-actions">
@@ -307,50 +341,18 @@
         </div>
         <p class="backup-status" id="backup-status" role="status" aria-live="polite" hidden></p>
       </section>
-      <section class="backup-settings" id="android-update-settings" aria-labelledby="android-update-title" hidden>
+      <section class="backup-settings" id="android-update-settings" aria-labelledby="android-update-title">
         <div>
-          <h3 id="android-update-title">Android app updates</h3>
-          <p>Check public GitHub Releases for a newer PawBudget APK. Android will ask you to confirm before installing.</p>
+          <h3 id="android-update-title">Android App Updates</h3>
+          <p id="android-current-version">Current version: 1.3 (Web)</p>
+          <p>Vibe Coded by Gabriel Royo Jr.</p>
         </div>
-        <div class="backup-actions">
+        <div class="backup-actions" id="android-update-actions" hidden>
           <button class="button button-quiet" id="check-android-update-button" type="button">Check for updates</button>
           <button class="button button-primary" id="install-android-update-button" type="button" hidden>Download and install update</button>
         </div>
         <p class="backup-status" id="android-update-status" role="status" aria-live="polite">Updates are checked when PawBudget starts.</p>
       </section>
-      <section class="cycle-settings" aria-labelledby="cycle-settings-title">
-      <h3 id="cycle-settings-title">Monthly billing cycle</h3>
-      <p>Choose the day each reporting period starts. The next period starts on the same day of the next month.</p>
-      <label class="field" for="cycle-start-day">Cycle starts on
-        <select id="cycle-start-day" name="cycleStartDay"></select>
-      </label>
-      <p class="cycle-settings-hint">For short months, days 29–31 fall on that month’s last day.</p>
-      </section>
-      <div class="manage-grid">
-        <details class="manage-section">
-          <summary class="manage-section-toggle"><span>Categories</span><span>Edit categories</span></summary>
-          <div class="manage-section-content">
-            <form class="inline-add-form" id="add-category-form">
-              <label class="visually-hidden" for="new-category">New category name</label>
-              <input id="new-category" type="text" maxlength="40" placeholder="Add a category" required>
-              <button class="button button-primary" type="submit" aria-label="Add category">+</button>
-            </form>
-            <ul class="manage-list" id="category-list"></ul>
-          </div>
-        </details>
-        <details class="manage-section">
-          <summary class="manage-section-toggle"><span>Accounts</span><span>Edit accounts</span></summary>
-          <div class="manage-section-content">
-            <form class="inline-add-form" id="add-account-form">
-              <label class="visually-hidden" for="new-account">New account name</label>
-              <input id="new-account" type="text" maxlength="40" placeholder="Add an account" required>
-              <button class="button button-primary" type="submit" aria-label="Add account">+</button>
-            </form>
-            <ul class="manage-list" id="account-list"></ul>
-          </div>
-        </details>
-      </div>
-      <p class="manage-note">Removing a category or account only removes it from future choices. Existing transactions keep their saved names.</p>
     </dialog>
   </body>
 </html>

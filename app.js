@@ -1,5 +1,7 @@
 "use strict";
 
+const APP_VERSION = "1.3";
+
 if (window.Capacitor?.isNativePlatform()) {
   document.documentElement.classList.add("native-app");
 }
@@ -37,7 +39,7 @@ const elements = {
   pendingPage: document.getElementById("pending-page"),
   transactionsPage: document.getElementById("transactions-page"),
   budgetsPage: document.getElementById("budgets-page"),
-  currentMonthLabel: document.getElementById("current-month-label"),
+  billingPeriodLabel: document.getElementById("billing-period-label"),
   totalUsed: document.getElementById("total-used"),
   creditUsed: document.getElementById("credit-used"),
   paidUsed: document.getElementById("paid-used"),
@@ -77,7 +79,6 @@ const elements = {
   transactionAccount: document.getElementById("transaction-account"),
   saveTransactionButton: document.getElementById("save-transaction-button"),
   transactionList: document.getElementById("transaction-list"),
-  budgetPeriodLabel: document.getElementById("budget-period-label"),
   budgetsPageTotal: document.getElementById("budgets-page-total"),
   budgetEntryCount: document.getElementById("budget-entry-count"),
   budgetList: document.getElementById("budget-list"),
@@ -94,6 +95,8 @@ const elements = {
   accountList: document.getElementById("account-list"),
   backupStatus: document.getElementById("backup-status"),
   androidUpdateSettings: document.getElementById("android-update-settings"),
+  androidCurrentVersion: document.getElementById("android-current-version"),
+  androidUpdateActions: document.getElementById("android-update-actions"),
   checkAndroidUpdateButton: document.getElementById("check-android-update-button"),
   installAndroidUpdateButton: document.getElementById("install-android-update-button"),
   androidUpdateStatus: document.getElementById("android-update-status"),
@@ -124,9 +127,26 @@ function getSelectedPeriodStart() {
   return localDateString(getCycleStartDate(state.month.getFullYear(), state.month.getMonth()));
 }
 
+function getDefaultTransactionDate() {
+  const today = new Date();
+  const { start, end } = getSelectedCycle();
+  return localDateString(today >= start && today <= end ? today : start);
+}
+
 function getPeriodBudgets() {
   const periodStart = getSelectedPeriodStart();
   return state.data.budgets.filter((budget) => budget.periodStart === periodStart);
+}
+
+function renderBillingPeriod() {
+  const { start, end } = getSelectedCycle();
+  elements.billingPeriodLabel.textContent = `${dateFormatter.format(start)} – ${dateFormatter.format(end)}`;
+}
+
+function changeBillingPeriod(monthOffset) {
+  state.month = new Date(state.month.getFullYear(), state.month.getMonth() + monthOffset, 1);
+  state.selectedPendingIds.clear();
+  updateAll();
 }
 
 function exampleDate(daysAgo) {
@@ -136,10 +156,9 @@ function exampleDate(daysAgo) {
 }
 
 function renderBudgets() {
+  const { start, end } = getSelectedCycle();
   const budgets = [...getPeriodBudgets()].sort((a, b) => a.person.localeCompare(b.person));
   const total = budgets.reduce((sum, budget) => sum + budget.amount, 0);
-  const { start, end } = getSelectedCycle();
-  elements.budgetPeriodLabel.textContent = `${dateFormatter.format(start)} – ${dateFormatter.format(end)}`;
   elements.budgetsPageTotal.textContent = formatAmount(total);
   elements.budgetEntryCount.textContent = String(budgets.length);
   elements.budgetList.replaceChildren();
@@ -152,9 +171,6 @@ function renderBudgets() {
     item.className = "budget-item";
     const primary = document.createElement("div");
     primary.className = "item-primary";
-    const mark = document.createElement("span");
-    mark.className = "item-mark";
-    mark.textContent = "₱";
     const copy = document.createElement("div");
     copy.className = "item-copy";
     const title = document.createElement("strong");
@@ -162,7 +178,7 @@ function renderBudgets() {
     const metadata = document.createElement("span");
     metadata.textContent = `Budget for ${dateFormatter.format(start)} – ${dateFormatter.format(end)}`;
     copy.append(title, metadata);
-    primary.append(mark, copy);
+    primary.append(copy);
     const actions = document.createElement("div");
     actions.className = "transaction-actions";
     const amount = document.createElement("span");
@@ -183,7 +199,7 @@ function openNewBudget() {
   elements.budgetId.value = "";
   elements.budgetDialogTitle.textContent = "Add budget";
   elements.saveBudgetButton.textContent = "Save budget";
-  elements.budgetDialog.showModal();
+  openDialog(elements.budgetDialog);
 }
 
 function openEditBudget(id) {
@@ -194,7 +210,7 @@ function openEditBudget(id) {
   elements.budgetAmount.value = String(budget.amount);
   elements.budgetDialogTitle.textContent = "Edit budget";
   elements.saveBudgetButton.textContent = "Save changes";
-  elements.budgetDialog.showModal();
+  openDialog(elements.budgetDialog);
 }
 
 function submitBudget(event) {
@@ -217,7 +233,7 @@ function submitBudget(event) {
     ? state.data.budgets.map((item) => item.id === id ? budget : item)
     : [...state.data.budgets, budget];
   if (!saveData({ ...state.data, budgets })) return;
-  elements.budgetDialog.close();
+  closeDialog(elements.budgetDialog);
   updateAll();
 }
 
@@ -324,6 +340,7 @@ async function checkForAndroidUpdate() {
   setAndroidUpdateStatus("Checking GitHub for updates…");
   try {
     const { versionName } = await window.ledgerNative.getAppVersion();
+    elements.androidCurrentVersion.textContent = `Current version: ${versionName}`;
     const installedVersion = parseAppVersion(versionName);
     if (!installedVersion) {
       throw new Error(`The installed app version (${versionName}) is not in a supported numeric format.`);
@@ -360,7 +377,6 @@ async function checkForAndroidUpdate() {
     elements.installAndroidUpdateButton.textContent = `Download and install ${release.tag_name}`;
     elements.installAndroidUpdateButton.hidden = false;
     setAndroidUpdateStatus(`Version ${release.tag_name} is available.`);
-    showAlert(`PawBudget ${release.tag_name} is available. Open Settings & lists to install the update.`);
   } catch (error) {
     setAndroidUpdateStatus(`Could not check for updates. ${error.message || "Check your internet connection and try again."}`);
   } finally {
@@ -381,6 +397,30 @@ async function installAndroidUpdate() {
     elements.installAndroidUpdateButton.disabled = false;
   }
 }
+
+let lockedScrollY = 0;
+
+function openDialog(dialog) {
+  lockedScrollY = window.scrollY;
+  document.documentElement.classList.add("dialog-open");
+  document.body.classList.add("dialog-open");
+  document.body.style.top = `-${lockedScrollY}px`;
+  dialog.showModal();
+}
+
+function closeDialog(dialog) {
+  dialog.close();
+}
+
+document.querySelectorAll("dialog").forEach((dialog) => {
+  dialog.addEventListener("close", () => {
+    if (document.querySelector("dialog[open]")) return;
+    document.documentElement.classList.remove("dialog-open");
+    document.body.classList.remove("dialog-open");
+    document.body.style.top = "";
+    window.scrollTo(0, lockedScrollY);
+  });
+});
 
 function setSaveStatus(message) {
   elements.saveStatus.textContent = message;
@@ -673,24 +713,23 @@ function openPeriodTransactions(title, matches) {
     item.className = "transaction-item";
     const primary = document.createElement("div");
     primary.className = "item-primary";
-    const mark = document.createElement("span");
-    mark.className = "item-mark";
-    mark.textContent = "↗";
     const copy = document.createElement("div");
     copy.className = "item-copy";
     const description = document.createElement("strong");
     description.textContent = transaction.description;
-    const metadata = document.createElement("span");
-    metadata.textContent = `${dateFormatter.format(new Date(`${transaction.date}T12:00:00`))} · ${transaction.account}`;
-    copy.append(description, metadata);
-    primary.append(mark, copy);
+    const dateCategory = document.createElement("span");
+    dateCategory.textContent = `${dateFormatter.format(new Date(`${transaction.date}T12:00:00`))} · ${transaction.category}`;
+    const account = document.createElement("span");
+    account.textContent = `Account Used: ${transaction.account}`;
+    copy.append(description, dateCategory, account);
+    primary.append(copy);
     const amount = document.createElement("span");
     amount.className = "item-amount";
     amount.textContent = formatAmount(transaction.amount);
     item.append(primary, amount);
     elements.categoryTransactionsList.append(item);
   }
-  elements.categoryTransactionsDialog.showModal();
+  openDialog(elements.categoryTransactionsDialog);
 }
 
 function renderOverview() {
@@ -700,8 +739,6 @@ function renderOverview() {
   const total = transactions.reduce((sum, item) => sum + item.amount, 0);
   const creditTotal = creditTransactions.reduce((sum, item) => sum + item.amount, 0);
   const paidTotal = paidTransactions.reduce((sum, item) => sum + item.amount, 0);
-  const { start, end } = getSelectedCycle();
-  elements.currentMonthLabel.textContent = `${dateFormatter.format(start)} – ${dateFormatter.format(end)}`;
   elements.totalUsed.textContent = formatAmount(total);
   elements.creditUsed.textContent = formatAmount(creditTotal);
   elements.paidUsed.textContent = formatAmount(paidTotal);
@@ -739,7 +776,7 @@ function createEmptyState(title, message, buttonLabel, action) {
 }
 
 function renderPending() {
-  const creditTransactions = state.data.transactions
+  const creditTransactions = getMonthTransactions()
     .filter((transaction) => transaction.paymentType === "credit")
     .sort(compareTransactionsNewestFirst);
   const pending = creditTransactions.filter((transaction) => !transaction.isPaid);
@@ -756,7 +793,7 @@ function renderPending() {
   renderPendingSelectionBar();
 
   if (!creditTransactions.length) {
-    elements.pendingList.append(createEmptyState("No credit transactions yet", "Credit transactions will appear here until you mark them paid.", "Add a transaction", openNewTransaction));
+    elements.pendingList.append(createEmptyState("No credit transactions this period", "Credit transactions for this billing period will appear here until you mark them paid.", "Add a transaction", openNewTransaction));
     document.querySelector(".paid-credit-group").hidden = true;
     return;
   }
@@ -786,17 +823,16 @@ function createCreditPaymentItem(transaction) {
   });
   const primary = document.createElement("div");
   primary.className = "item-primary";
-  const mark = document.createElement("span");
-  mark.className = "item-mark";
-  mark.textContent = "↗";
   const copy = document.createElement("div");
   copy.className = "item-copy";
   const title = document.createElement("strong");
   title.textContent = transaction.description;
-  const metadata = document.createElement("span");
-  metadata.textContent = `${dateFormatter.format(new Date(`${transaction.date}T12:00:00`))} · ${transaction.account} · ${transaction.category}`;
-  copy.append(title, metadata);
-  primary.append(mark, copy);
+  const dateCategory = document.createElement("span");
+  dateCategory.textContent = `${dateFormatter.format(new Date(`${transaction.date}T12:00:00`))} · ${transaction.category}`;
+  const account = document.createElement("span");
+  account.textContent = `Account Used: ${transaction.account}`;
+  copy.append(title, dateCategory, account);
+  primary.append(copy);
   const actions = document.createElement("div");
   actions.className = "item-actions";
   const amount = document.createElement("span");
@@ -813,7 +849,7 @@ function createCreditPaymentItem(transaction) {
 }
 
 function renderPendingSelectionBar() {
-  const selected = state.data.transactions.filter((transaction) =>
+  const selected = getMonthTransactions().filter((transaction) =>
     state.selectedPendingIds.has(transaction.id) && transaction.paymentType === "credit"
   );
   const count = selected.length;
@@ -826,10 +862,10 @@ function renderPendingSelectionBar() {
 }
 
 function renderTransactionList() {
-  const transactions = [...state.data.transactions].sort(compareTransactionsNewestFirst);
+  const transactions = getMonthTransactions().sort(compareTransactionsNewestFirst);
   elements.transactionList.replaceChildren();
   if (!transactions.length) {
-    elements.transactionList.append(createEmptyState("No transactions yet", "Add a transaction to start building your money tracker.", "Add transaction", openNewTransaction));
+    elements.transactionList.append(createEmptyState("No transactions this period", "Transactions for this billing period will appear here.", "Add transaction", openNewTransaction));
     return;
   }
 
@@ -838,17 +874,16 @@ function renderTransactionList() {
     item.className = "transaction-item";
     const primary = document.createElement("div");
     primary.className = "item-primary";
-    const mark = document.createElement("span");
-    mark.className = "item-mark";
-    mark.textContent = transaction.paymentType === "credit" ? "↗" : "✓";
     const copy = document.createElement("div");
     copy.className = "item-copy";
     const title = document.createElement("strong");
     title.textContent = transaction.description;
-    const metadata = document.createElement("span");
-    metadata.textContent = `${dateFormatter.format(new Date(`${transaction.date}T12:00:00`))} · ${transaction.category} · ${transaction.account}`;
-    copy.append(title, metadata);
-    primary.append(mark, copy);
+    const dateCategory = document.createElement("span");
+    dateCategory.textContent = `${dateFormatter.format(new Date(`${transaction.date}T12:00:00`))} · ${transaction.category}`;
+    const account = document.createElement("span");
+    account.textContent = `Account Used: ${transaction.account}`;
+    copy.append(title, dateCategory, account);
+    primary.append(copy);
     const actions = document.createElement("div");
     actions.className = "transaction-actions";
     const amount = document.createElement("span");
@@ -918,9 +953,9 @@ function openNewTransaction() {
   elements.transactionId.value = "";
   elements.transactionDialogTitle.textContent = "Add transaction";
   elements.saveTransactionButton.textContent = "Save transaction";
-  elements.transactionDate.value = localDateString(new Date());
+  elements.transactionDate.value = getDefaultTransactionDate();
   fillSelects(null);
-  elements.transactionDialog.showModal();
+  openDialog(elements.transactionDialog);
 }
 
 function openEditTransaction(id) {
@@ -937,10 +972,11 @@ function openEditTransaction(id) {
   elements.transactionCategory.value = transaction.category;
   elements.transactionAccount.value = transaction.account;
   elements.transactionForm.elements.paymentType.value = transaction.paymentType;
-  elements.transactionDialog.showModal();
+  openDialog(elements.transactionDialog);
 }
 
 function updateAll() {
+  renderBillingPeriod();
   renderOverview();
   renderPending();
   renderTransactionList();
@@ -978,7 +1014,7 @@ function submitTransaction(event) {
     ? state.data.transactions.map((item) => item.id === id ? transaction : item)
     : [...state.data.transactions, transaction];
   if (!saveData({ ...state.data, transactions })) return;
-  elements.transactionDialog.close();
+  closeDialog(elements.transactionDialog);
   updateAll();
 }
 
@@ -992,7 +1028,7 @@ function setCreditPaidState(id, isPaid) {
 }
 
 function setSelectedCreditPaidState() {
-  const selected = state.data.transactions.filter((transaction) =>
+  const selected = getMonthTransactions().filter((transaction) =>
     state.selectedPendingIds.has(transaction.id) && transaction.paymentType === "credit"
   );
   if (!selected.length) return;
@@ -1032,14 +1068,16 @@ function ordinal(value) {
 }
 
 function renderCycleStartDayOptions() {
-  elements.cycleStartDay.replaceChildren();
-  for (let day = 1; day <= 31; day += 1) {
-    const option = document.createElement("option");
-    option.value = String(day);
-    option.textContent = day === 31
-      ? "31st (last day in shorter months)"
-      : `${ordinal(day)} of each month`;
-    elements.cycleStartDay.append(option);
+  if (elements.cycleStartDay.options.length !== 31) {
+    elements.cycleStartDay.replaceChildren();
+    for (let day = 1; day <= 31; day += 1) {
+      const option = document.createElement("option");
+      option.value = String(day);
+      option.textContent = day === 31
+        ? "31st (last day in shorter months)"
+        : `${ordinal(day)} of each month`;
+      elements.cycleStartDay.append(option);
+    }
   }
   elements.cycleStartDay.value = String(state.data.cycleStartDay);
 }
@@ -1190,17 +1228,11 @@ function setPage(page) {
 document.querySelectorAll(".nav-link").forEach((button) => {
   button.addEventListener("click", () => setPage(button.dataset.page));
 });
-document.getElementById("previous-month").addEventListener("click", () => {
-  state.month = new Date(state.month.getFullYear(), state.month.getMonth() - 1, 1);
-  renderOverview();
-});
-document.getElementById("next-month").addEventListener("click", () => {
-  state.month = new Date(state.month.getFullYear(), state.month.getMonth() + 1, 1);
-  renderOverview();
-});
+document.getElementById("previous-period").addEventListener("click", () => changeBillingPeriod(-1));
+document.getElementById("next-period").addEventListener("click", () => changeBillingPeriod(1));
 document.getElementById("add-transaction-button").addEventListener("click", openNewTransaction);
 function openManageDialog() {
-  elements.manageDialog.showModal();
+  openDialog(elements.manageDialog);
 }
 
 document.getElementById("manage-data-button").addEventListener("click", openManageDialog);
@@ -1216,14 +1248,6 @@ document.getElementById("import-data-file").addEventListener("change", (event) =
 });
 elements.cycleStartDay.addEventListener("change", updateCycleStartDay);
 elements.budgetForm.addEventListener("submit", submitBudget);
-document.getElementById("previous-budget-period").addEventListener("click", () => {
-  state.month = new Date(state.month.getFullYear(), state.month.getMonth() - 1, 1);
-  renderBudgets();
-});
-document.getElementById("next-budget-period").addEventListener("click", () => {
-  state.month = new Date(state.month.getFullYear(), state.month.getMonth() + 1, 1);
-  renderBudgets();
-});
 elements.transactionForm.addEventListener("submit", submitTransaction);
 elements.bulkPaymentButton.addEventListener("click", setSelectedCreditPaidState);
 document.getElementById("clear-pending-selection").addEventListener("click", () => {
@@ -1245,14 +1269,17 @@ document.getElementById("add-account-form").addEventListener("submit", (event) =
   input.value = "";
 });
 document.querySelectorAll("[data-close]").forEach((button) => {
-  button.addEventListener("click", () => document.getElementById(button.dataset.close).close());
+  button.addEventListener("click", () => closeDialog(document.getElementById(button.dataset.close)));
 });
 
 if (loadData()) {
   updateAll();
   setPage("overview");
   if (window.Capacitor?.getPlatform() === "android") {
-    elements.androidUpdateSettings.hidden = false;
+    elements.androidUpdateActions.hidden = false;
     checkForAndroidUpdate();
+  } else {
+    elements.androidCurrentVersion.textContent = `Current version: ${APP_VERSION} (Web)`;
+    setAndroidUpdateStatus("APK updates can be checked and installed from the Android app.");
   }
 }
