@@ -1,5 +1,6 @@
 package com.zephiiel.ledger;
 
+import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.content.pm.PackageInfo;
@@ -7,8 +8,10 @@ import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
 
+import androidx.activity.result.ActivityResult;
 import androidx.core.content.FileProvider;
 
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -20,6 +23,8 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.ExecutorService;
@@ -29,6 +34,53 @@ import java.util.concurrent.Executors;
 public class ApkUpdaterPlugin extends Plugin {
     private static final int MAX_APK_SIZE = 150 * 1024 * 1024;
     private static final ExecutorService DOWNLOAD_EXECUTOR = Executors.newSingleThreadExecutor();
+
+    @PluginMethod
+    public void exportBackup(PluginCall call) {
+        String fileName = call.getString("fileName");
+        String contents = call.getString("contents");
+        if (fileName == null || fileName.isEmpty() || contents == null) {
+            call.reject("A file name and backup contents are required.");
+            return;
+        }
+
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("application/json");
+        intent.putExtra(Intent.EXTRA_TITLE, fileName);
+        call.getData().put("contents", contents);
+        startActivityForResult(call, intent, "backupExportResult");
+    }
+
+    @ActivityCallback
+    private void backupExportResult(PluginCall call, ActivityResult result) {
+        if (result.getResultCode() == Activity.RESULT_CANCELED) {
+            JSObject response = new JSObject();
+            response.put("cancelled", true);
+            call.resolve(response);
+            return;
+        }
+
+        Intent intent = result.getData();
+        Uri uri = intent == null ? null : intent.getData();
+        String contents = call.getData().getString("contents");
+        if (uri == null || contents == null) {
+            call.reject("Android did not return a file location for the backup.");
+            return;
+        }
+
+        try (OutputStream output = getContext().getContentResolver().openOutputStream(uri, "w")) {
+            if (output == null) {
+                throw new IOException("Could not open the selected backup file.");
+            }
+            output.write(contents.getBytes(StandardCharsets.UTF_8));
+            JSObject response = new JSObject();
+            response.put("cancelled", false);
+            call.resolve(response);
+        } catch (IOException | SecurityException error) {
+            call.reject("Could not save the backup to the selected location.", error);
+        }
+    }
 
     @PluginMethod
     public void getAppVersion(PluginCall call) {
@@ -74,7 +126,7 @@ public class ApkUpdaterPlugin extends Plugin {
     private void downloadAndInstall(PluginCall call, String urlValue) {
         File apkFile = new File(getContext().getCacheDir(), "updates/pawbudget-update.apk");
         try {
-            downloadApk(urlValue, apkFile);
+            downloadApk(urlValue, apkFile, call);
             try (FileInputStream input = new FileInputStream(apkFile)) {
                 if (input.read() != 0x50 || input.read() != 0x4b || input.read() != 0x03 || input.read() != 0x04) {
                     throw new IOException("The downloaded file is not a valid APK archive.");
@@ -103,7 +155,7 @@ public class ApkUpdaterPlugin extends Plugin {
         }
     }
 
-    private void downloadApk(String urlValue, File apkFile) throws IOException {
+    private void downloadApk(String urlValue, File apkFile, PluginCall call) throws IOException {
         File updateDirectory = apkFile.getParentFile();
         if (!updateDirectory.isDirectory() && !updateDirectory.mkdirs()) {
             throw new IOException("Could not create the APK cache directory.");
@@ -118,25 +170,41 @@ public class ApkUpdaterPlugin extends Plugin {
             if (responseCode != HttpURLConnection.HTTP_OK) {
                 throw new IOException("GitHub returned HTTP " + responseCode + ".");
             }
-            int contentLength = connection.getContentLength();
+            long contentLength = connection.getContentLengthLong();
             if (contentLength > MAX_APK_SIZE) {
                 throw new IOException("The APK exceeds the 150 MB download limit.");
             }
             try (InputStream input = connection.getInputStream();
                  FileOutputStream output = new FileOutputStream(apkFile)) {
                 byte[] buffer = new byte[8192];
-                int totalBytes = 0;
+                long totalBytes = 0;
+                long lastReportedBytes = 0;
                 int bytesRead;
+                notifyDownloadProgress(call, totalBytes, contentLength);
                 while ((bytesRead = input.read(buffer)) != -1) {
                     totalBytes += bytesRead;
                     if (totalBytes > MAX_APK_SIZE) {
                         throw new IOException("The APK exceeds the 150 MB download limit.");
                     }
                     output.write(buffer, 0, bytesRead);
+                    if (totalBytes - lastReportedBytes >= 256 * 1024
+                        || (contentLength > 0 && totalBytes >= contentLength)) {
+                        notifyDownloadProgress(call, totalBytes, contentLength);
+                        lastReportedBytes = totalBytes;
+                    }
                 }
+                notifyDownloadProgress(call, totalBytes, contentLength);
             }
         } finally {
             connection.disconnect();
         }
+    }
+
+    private void notifyDownloadProgress(PluginCall call, long downloadedBytes, long totalBytes) {
+        JSObject progress = new JSObject();
+        progress.put("downloadedBytes", downloadedBytes);
+        progress.put("totalBytes", totalBytes);
+        progress.put("percent", totalBytes > 0 ? Math.min(100, (int) (downloadedBytes * 100 / totalBytes)) : -1);
+        notifyListeners("downloadProgress", progress);
     }
 }

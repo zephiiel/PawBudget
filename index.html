@@ -13,9 +13,9 @@
   <body>
     <div class="app-shell">
       <aside class="sidebar">
-        <a class="brand" href="#" aria-label="PawBudget home">
+        <button class="brand" id="manage-data-button" type="button" aria-label="Open Settings and lists">
           <img class="brand-logo" src="assets/pawbudget-logo.png" alt="PawBudget — Small steps, bigger goals">
-        </a>
+        </button>
 
         <div class="nav-label">Workspace</div>
         <nav class="primary-nav" aria-label="Main navigation">
@@ -36,10 +36,14 @@
             <span class="nav-icon" aria-hidden="true">▤</span>
             <span>Budgets</span>
           </button>
+          <button class="nav-link" type="button" data-page="todo" aria-label="To-do">
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H6a2 2 0 0 0-2 2v12h16V7a2 2 0 0 0-2-2h-3"></path><rect x="9" y="3" width="6" height="4" rx="1"></rect><path d="m8 13 2 2 5-5"></path></svg></span>
+            <span>To-do</span>
+          </button>
         </nav>
 
         <div class="sidebar-bottom">
-          <button class="sidebar-settings-button" id="manage-data-button" type="button" aria-label="Settings and lists">
+          <button class="sidebar-settings-button" id="sidebar-manage-data-button" type="button" aria-label="Settings and lists">
             <span class="nav-icon" aria-hidden="true">⚙</span>
             <span>Settings &amp; lists</span>
           </button>
@@ -52,25 +56,38 @@
 
       <main class="main-content">
         <header class="topbar">
-          <div class="mobile-brand"><img src="assets/pawbudget-icon.png" alt=""> <span>PawBudget</span></div>
+          <button class="mobile-brand" id="mobile-manage-data-button" type="button" aria-label="Open Settings and lists">
+            <img src="assets/pawbudget-icon.png" alt=""><span>PawBudget</span>
+          </button>
           <div class="topbar-actions">
             <span class="mobile-save-status" id="mobile-save-status" role="status" aria-live="polite" aria-label="All changes saved"><span aria-hidden="true">●</span> Saved</span>
-            <button class="button button-quiet" id="add-budget-button" type="button">
-              <span aria-hidden="true">+</span><span>Budget</span>
-            </button>
-            <button class="button button-primary" id="add-transaction-button" type="button">
-              <span aria-hidden="true">+</span><span>Transaction</span>
-            </button>
+            <div class="month-picker" aria-label="Choose billing period">
+              <button class="icon-button" id="previous-period" type="button" aria-label="Previous billing period">
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m14 18-6-6 6-6"></path></svg>
+              </button>
+              <span id="billing-period-label"></span>
+              <button class="icon-button" id="next-period" type="button" aria-label="Next billing period">
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m10 18 6-6-6-6"></path></svg>
+              </button>
+            </div>
+            <div class="quick-add">
+              <button class="quick-add-toggle" id="quick-add-toggle" type="button" aria-label="Add to PawBudget" aria-expanded="false" aria-controls="quick-add-menu">
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"></path></svg>
+              </button>
+              <div class="quick-add-menu" id="quick-add-menu" aria-label="Choose what to add" hidden inert>
+                <button class="quick-add-option" id="add-budget-button" type="button">
+                  <span class="quick-add-option-icon" aria-hidden="true">▤</span><span>Budget</span>
+                </button>
+                <button class="quick-add-option" id="add-transaction-button" type="button">
+                  <span class="quick-add-option-icon" aria-hidden="true">↗</span><span>Transaction</span>
+                </button>
+                <button class="quick-add-option" id="add-todo-button" type="button">
+                  <span class="quick-add-option-icon" aria-hidden="true">✓</span><span>To-do</span>
+                </button>
+              </div>
+            </div>
           </div>
         </header>
-
-        <div class="billing-period-toolbar">
-          <div class="month-picker" aria-label="Choose billing period">
-            <button class="icon-button" id="previous-period" type="button" aria-label="Previous billing period">←</button>
-            <span id="billing-period-label"></span>
-            <button class="icon-button" id="next-period" type="button" aria-label="Next billing period">→</button>
-          </div>
-        </div>
 
         <div class="alert" id="app-alert" role="alert" hidden></div>
 
@@ -216,6 +233,26 @@
           </article>
           <div class="budget-list" id="budget-list"></div>
         </section>
+
+        <section class="page" id="todo-page" aria-labelledby="todo-title" hidden>
+          <div class="page-heading">
+            <div>
+              <p class="eyebrow">KEEP TRACK OF WHAT'S NEXT</p>
+              <h1 id="todo-title">To-do List</h1>
+              <p class="page-subtitle">A simple checklist for this billing period: <span id="todo-period-label"></span></p>
+            </div>
+          </div>
+          <form class="todo-add-form" id="todo-form">
+            <label class="visually-hidden" for="todo-input">New to-do item</label>
+            <input id="todo-input" type="text" maxlength="120" placeholder="What needs to get done?" required>
+            <button class="button button-primary" type="submit"><span aria-hidden="true">+</span>Add task</button>
+          </form>
+          <div class="todo-list-heading">
+            <h2>Tasks</h2>
+            <span id="todo-count" aria-live="polite"></span>
+          </div>
+          <ul class="todo-list" id="todo-list" aria-label="To-do items"></ul>
+        </section>
       </main>
     </div>
 
@@ -344,12 +381,21 @@
       <section class="backup-settings" id="android-update-settings" aria-labelledby="android-update-title">
         <div>
           <h3 id="android-update-title">Android App Updates</h3>
-          <p id="android-current-version">Current version: 1.3 (Web)</p>
+          <p id="android-current-version">Current version: 1.4 (Web)</p>
           <p>Vibe Coded by Gabriel Royo Jr.</p>
         </div>
         <div class="backup-actions" id="android-update-actions" hidden>
           <button class="button button-quiet" id="check-android-update-button" type="button">Check for updates</button>
           <button class="button button-primary" id="install-android-update-button" type="button" hidden>Download and install update</button>
+        </div>
+        <div class="update-download-progress" id="android-update-progress" hidden>
+          <div class="update-download-progress-label">
+            <span id="android-update-progress-text">Preparing download…</span>
+            <span id="android-update-progress-value"></span>
+          </div>
+          <div class="update-download-progress-track" id="android-update-progress-track" role="progressbar" aria-label="App update download" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="update-download-progress-fill" id="android-update-progress-fill"></div>
+          </div>
         </div>
         <p class="backup-status" id="android-update-status" role="status" aria-live="polite">Updates are checked when PawBudget starts.</p>
       </section>

@@ -1,6 +1,6 @@
 "use strict";
 
-const APP_VERSION = "1.3";
+const APP_VERSION = "1.4";
 
 if (window.Capacitor?.isNativePlatform()) {
   document.documentElement.classList.add("native-app");
@@ -23,6 +23,10 @@ const dateFormatter = new Intl.DateTimeFormat("en-PH", {
   month: "short",
   year: "numeric",
 });
+const compactDateFormatter = new Intl.DateTimeFormat("en-PH", {
+  day: "numeric",
+  month: "short",
+});
 const state = {
   data: null,
   month: null,
@@ -30,6 +34,7 @@ const state = {
   selectedPendingIds: new Set(),
   androidUpdate: null,
 };
+const amountAnimations = new WeakMap();
 
 const elements = {
   alert: document.getElementById("app-alert"),
@@ -39,6 +44,12 @@ const elements = {
   pendingPage: document.getElementById("pending-page"),
   transactionsPage: document.getElementById("transactions-page"),
   budgetsPage: document.getElementById("budgets-page"),
+  todoPage: document.getElementById("todo-page"),
+  todoForm: document.getElementById("todo-form"),
+  todoInput: document.getElementById("todo-input"),
+  todoList: document.getElementById("todo-list"),
+  todoCount: document.getElementById("todo-count"),
+  todoPeriodLabel: document.getElementById("todo-period-label"),
   billingPeriodLabel: document.getElementById("billing-period-label"),
   totalUsed: document.getElementById("total-used"),
   creditUsed: document.getElementById("credit-used"),
@@ -100,6 +111,11 @@ const elements = {
   checkAndroidUpdateButton: document.getElementById("check-android-update-button"),
   installAndroidUpdateButton: document.getElementById("install-android-update-button"),
   androidUpdateStatus: document.getElementById("android-update-status"),
+  androidUpdateProgress: document.getElementById("android-update-progress"),
+  androidUpdateProgressText: document.getElementById("android-update-progress-text"),
+  androidUpdateProgressValue: document.getElementById("android-update-progress-value"),
+  androidUpdateProgressTrack: document.getElementById("android-update-progress-track"),
+  androidUpdateProgressFill: document.getElementById("android-update-progress-fill"),
 };
 
 function localDateString(date) {
@@ -127,6 +143,20 @@ function getSelectedPeriodStart() {
   return localDateString(getCycleStartDate(state.month.getFullYear(), state.month.getMonth()));
 }
 
+function getCurrentCyclePeriodStart(cycleStartDay = state.data.cycleStartDay) {
+  const month = getCurrentCycleMonth(cycleStartDay);
+  return localDateString(getCycleStartDate(month.getFullYear(), month.getMonth(), cycleStartDay));
+}
+
+function getCyclePeriodStartForDate(dateString, cycleStartDay) {
+  const date = new Date(`${dateString}T12:00:00`);
+  const currentMonthStart = getCycleStartDate(date.getFullYear(), date.getMonth(), cycleStartDay);
+  const periodStart = date >= currentMonthStart
+    ? currentMonthStart
+    : getCycleStartDate(date.getFullYear(), date.getMonth() - 1, cycleStartDay);
+  return localDateString(periodStart);
+}
+
 function getDefaultTransactionDate() {
   const today = new Date();
   const { start, end } = getSelectedCycle();
@@ -140,7 +170,19 @@ function getPeriodBudgets() {
 
 function renderBillingPeriod() {
   const { start, end } = getSelectedCycle();
-  elements.billingPeriodLabel.textContent = `${dateFormatter.format(start)} – ${dateFormatter.format(end)}`;
+  const fullPeriod = `${dateFormatter.format(start)} – ${dateFormatter.format(end)}`;
+  if (window.matchMedia("(max-width: 580px)").matches) {
+    const startYear = String(start.getFullYear()).slice(-2);
+    const endYear = String(end.getFullYear()).slice(-2);
+    const compactPeriod = start.getFullYear() === end.getFullYear()
+      ? `${compactDateFormatter.format(start)} – ${compactDateFormatter.format(end)} '${endYear}`
+      : `${compactDateFormatter.format(start)} '${startYear} – ${compactDateFormatter.format(end)} '${endYear}`;
+    elements.billingPeriodLabel.textContent = compactPeriod;
+  } else {
+    elements.billingPeriodLabel.textContent = fullPeriod;
+  }
+  elements.billingPeriodLabel.setAttribute("aria-label", fullPeriod);
+  elements.billingPeriodLabel.title = fullPeriod;
 }
 
 function changeBillingPeriod(monthOffset) {
@@ -180,7 +222,7 @@ function renderBudgets() {
     copy.append(title, metadata);
     primary.append(copy);
     const actions = document.createElement("div");
-    actions.className = "transaction-actions";
+    actions.className = "item-actions";
     const amount = document.createElement("span");
     amount.className = "item-amount";
     amount.textContent = formatAmount(budget.amount);
@@ -191,6 +233,112 @@ function renderBudgets() {
     actions.append(amount, editButton, deleteButton);
     item.append(primary, actions);
     elements.budgetList.append(item);
+  }
+}
+
+function renderTodoList() {
+  const periodStart = getSelectedPeriodStart();
+  const { start, end } = getSelectedCycle();
+  const todos = state.data.todos
+    .filter((todo) => todo.periodStart === periodStart)
+    .sort((first, second) => Number(first.completed) - Number(second.completed));
+  const completedCount = todos.filter((todo) => todo.completed).length;
+  elements.todoPeriodLabel.textContent = `${dateFormatter.format(start)} – ${dateFormatter.format(end)}`;
+  elements.todoCount.textContent = `${todos.length - completedCount} remaining · ${completedCount} completed`;
+  elements.todoList.replaceChildren();
+
+  if (todos.length === 0) {
+    const empty = document.createElement("li");
+    empty.className = "todo-empty";
+    empty.textContent = "No tasks for this billing period yet. Add one above to get started.";
+    elements.todoList.append(empty);
+    return;
+  }
+
+  for (const todo of todos) {
+    const item = document.createElement("li");
+    item.className = "todo-item";
+    item.classList.toggle("is-complete", todo.completed);
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = todo.completed;
+    checkbox.setAttribute("aria-label", `${todo.completed ? "Reopen" : "Complete"}: ${todo.title}`);
+    checkbox.addEventListener("change", () => {
+      const nextTodos = state.data.todos.map((entry) =>
+        entry.id === todo.id ? { ...entry, completed: checkbox.checked } : entry
+      );
+      if (saveData({ ...state.data, todos: nextTodos })) renderTodoList();
+    });
+    const title = document.createElement("span");
+    title.className = "todo-item-label";
+    title.textContent = todo.title;
+    const editButton = createActionIconButton("Edit task", "M12 20h9 M16.5 3.5a2.12 2.12 0 0 1 3 3L9 17l-4 1 1-4Z");
+    editButton.addEventListener("click", () => {
+      const form = document.createElement("form");
+      form.className = "todo-edit-form";
+      const input = document.createElement("input");
+      input.className = "todo-edit-input";
+      input.type = "text";
+      input.maxLength = 120;
+      input.required = true;
+      input.value = todo.title;
+      input.setAttribute("aria-label", "Edit task text");
+      const saveButton = document.createElement("button");
+      saveButton.className = "todo-edit-save";
+      saveButton.type = "submit";
+      saveButton.textContent = "Save";
+      const cancelButton = document.createElement("button");
+      cancelButton.className = "todo-edit-cancel";
+      cancelButton.type = "button";
+      cancelButton.textContent = "Cancel";
+      cancelButton.addEventListener("click", renderTodoList);
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const updatedTitle = input.value.trim();
+        if (!updatedTitle) {
+          showAlert("A task cannot have an empty title.");
+          input.focus();
+          return;
+        }
+        const nextTodos = state.data.todos.map((entry) =>
+          entry.id === todo.id ? { ...entry, title: updatedTitle } : entry
+        );
+        if (saveData({ ...state.data, todos: nextTodos })) renderTodoList();
+      });
+      form.append(input, saveButton, cancelButton);
+      item.replaceChildren(checkbox, form, deleteButton);
+      input.focus();
+      input.select();
+    });
+    const deleteButton = createActionIconButton("Delete task", "M3 6h18 M8 6V4h8v2 M19 6l-1 14H6L5 6 M10 11v5 M14 11v5", true);
+    deleteButton.addEventListener("click", () => {
+      const nextTodos = state.data.todos.filter((entry) => entry.id !== todo.id);
+      if (saveData({ ...state.data, todos: nextTodos })) renderTodoList();
+    });
+    item.append(checkbox, title, editButton, deleteButton);
+    elements.todoList.append(item);
+  }
+}
+
+function addTodo(event) {
+  event.preventDefault();
+  const title = elements.todoInput.value.trim();
+  if (!title) {
+    showAlert("Enter a task before adding it to your To-do List.");
+    elements.todoInput.focus();
+    return;
+  }
+
+  const todo = {
+    id: `todo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title,
+    completed: false,
+    periodStart: getSelectedPeriodStart(),
+  };
+  if (saveData({ ...state.data, todos: [...state.data.todos, todo] })) {
+    elements.todoForm.reset();
+    renderTodoList();
+    elements.todoInput.focus();
   }
 }
 
@@ -250,6 +398,7 @@ function createInitialData() {
     categories: ["Food & dining", "Groceries", "Transport", "Bills & utilities", "Shopping", "Health", "Other"],
     accounts: ["Cash", "Debit card", "Visa credit card", "Mastercard"],
     budgets: [],
+    todos: [],
     transactions: [
       { id: "sample-groceries", date: exampleDate(3), description: "Weekly groceries", category: "Groceries", amount: 1840, account: "Debit card", paymentType: "paid", isPaid: true },
       { id: "sample-dinner", date: exampleDate(2), description: "Dinner with friends", category: "Food & dining", amount: 1260, account: "Visa credit card", paymentType: "credit", isPaid: false },
@@ -272,6 +421,14 @@ function isValidData(data) {
       Number.isFinite(budget.amount) &&
       budget.amount > 0
     ))) &&
+    (data.todos === undefined || (Array.isArray(data.todos) && data.todos.every((todo) =>
+      todo &&
+      typeof todo.id === "string" &&
+      typeof todo.title === "string" &&
+      todo.title.trim().length > 0 &&
+      typeof todo.completed === "boolean" &&
+      (todo.periodStart === undefined || (typeof todo.periodStart === "string" && /^\d{4}-\d{2}-\d{2}$/.test(todo.periodStart)))
+    ))) &&
     Array.isArray(data.categories) &&
     data.categories.every((item) => typeof item === "string") &&
     Array.isArray(data.accounts) &&
@@ -293,10 +450,13 @@ function isValidData(data) {
 }
 
 function normalizeImportedData(data) {
+  const cycleStartDay = data.cycleStartDay ?? 1;
+  const periodStart = getCurrentCyclePeriodStart(cycleStartDay);
   return {
     ...data,
-    cycleStartDay: data.cycleStartDay ?? 1,
+    cycleStartDay,
     budgets: data.budgets ?? [],
+    todos: (data.todos ?? []).map((todo) => ({ ...todo, periodStart: todo.periodStart ?? periodStart })),
     transactions: data.transactions.map((transaction) =>
       transaction.isPaid === undefined
         ? { ...transaction, isPaid: transaction.paymentType === "paid" }
@@ -336,6 +496,7 @@ function setAndroidUpdateStatus(message) {
 async function checkForAndroidUpdate() {
   elements.checkAndroidUpdateButton.disabled = true;
   elements.installAndroidUpdateButton.hidden = true;
+  elements.androidUpdateProgress.hidden = true;
   state.androidUpdate = null;
   setAndroidUpdateStatus("Checking GitHub for updates…");
   try {
@@ -362,7 +523,8 @@ async function checkForAndroidUpdate() {
       throw new Error("The latest release tag must use a numeric version such as v1.2.3.");
     }
     if (compareAppVersions(releaseVersion, installedVersion) <= 0) {
-      setAndroidUpdateStatus(`You’re up to date (version ${versionName}).`);
+      elements.androidCurrentVersion.textContent = `Current version: ${versionName} (Up-to-date)`;
+      setAndroidUpdateStatus("");
       return;
     }
 
@@ -387,13 +549,44 @@ async function checkForAndroidUpdate() {
 async function installAndroidUpdate() {
   if (!state.androidUpdate) return;
   elements.installAndroidUpdateButton.disabled = true;
+  elements.androidUpdateProgress.hidden = false;
+  elements.androidUpdateProgressTrack.classList.add("is-indeterminate");
+  elements.androidUpdateProgressTrack.removeAttribute("aria-valuenow");
+  elements.androidUpdateProgressFill.style.width = "";
+  elements.androidUpdateProgressText.textContent = "Preparing download…";
+  elements.androidUpdateProgressValue.textContent = "";
   setAndroidUpdateStatus(`Downloading version ${state.androidUpdate.version}…`);
+  let progressListener;
   try {
+    progressListener = await window.ledgerNative.addDownloadProgressListener((progress) => {
+      const downloadedBytes = Number(progress.downloadedBytes);
+      const totalBytes = Number(progress.totalBytes);
+      const percent = Number(progress.percent);
+      const downloadedMegabytes = (downloadedBytes / (1024 * 1024)).toFixed(1);
+      elements.androidUpdateProgressText.textContent = totalBytes > 0
+        ? `Downloading update · ${downloadedMegabytes} MB of ${(totalBytes / (1024 * 1024)).toFixed(1)} MB`
+        : `Downloading update · ${downloadedMegabytes} MB`;
+
+      if (Number.isFinite(percent) && percent >= 0) {
+        const roundedPercent = Math.min(100, Math.max(0, Math.round(percent)));
+        elements.androidUpdateProgressTrack.classList.remove("is-indeterminate");
+        elements.androidUpdateProgressTrack.setAttribute("aria-valuenow", String(roundedPercent));
+        elements.androidUpdateProgressFill.style.width = `${roundedPercent}%`;
+        elements.androidUpdateProgressValue.textContent = `${roundedPercent}%`;
+      } else {
+        elements.androidUpdateProgressTrack.classList.add("is-indeterminate");
+        elements.androidUpdateProgressTrack.removeAttribute("aria-valuenow");
+        elements.androidUpdateProgressValue.textContent = "";
+      }
+      if (percent >= 100) elements.androidUpdateProgressText.textContent = "Download complete · opening installer…";
+    });
     await window.ledgerNative.installApk(state.androidUpdate.url);
     setAndroidUpdateStatus("The Android installer opened. Follow its prompts to finish updating.");
   } catch (error) {
+    elements.androidUpdateProgress.hidden = true;
     setAndroidUpdateStatus(error.message || "Could not install the update. Try again.");
   } finally {
+    if (progressListener) await progressListener.remove();
     elements.installAndroidUpdateButton.disabled = false;
   }
 }
@@ -463,21 +656,28 @@ function loadData() {
     const hasLegacyPaymentFlags = parsed.transactions.some((item) => item.isPaid === undefined);
     const hasLegacyCycleSetting = parsed.cycleStartDay === undefined;
     const hasLegacyBudgets = parsed.budgets === undefined;
-    state.data = hasLegacyPaymentFlags || hasLegacyCycleSetting || hasLegacyBudgets
-      ? {
-          ...parsed,
-          cycleStartDay: parsed.cycleStartDay ?? 1,
-          budgets: parsed.budgets ?? [],
-          transactions: parsed.transactions.map((item) =>
-            item.isPaid === undefined
-              ? { ...item, isPaid: item.paymentType === "paid" }
-              : item
-          ),
-        }
-      : parsed;
-    if ((hasLegacyPaymentFlags || hasLegacyCycleSetting || hasLegacyBudgets) && !saveData(state.data)) return false;
-    setSaveStatus("All changes saved");
+    const hasLegacyTodoPeriods = !Array.isArray(parsed.todos) || parsed.todos.some((todo) => todo.periodStart === undefined);
+    state.data = {
+      ...parsed,
+      cycleStartDay: parsed.cycleStartDay ?? 1,
+      budgets: parsed.budgets ?? [],
+      todos: parsed.todos ?? [],
+      transactions: parsed.transactions.map((item) =>
+        item.isPaid === undefined
+          ? { ...item, isPaid: item.paymentType === "paid" }
+          : item
+      ),
+    };
     state.month = getCurrentCycleMonth();
+    state.data = {
+      ...state.data,
+      todos: state.data.todos.map((todo) => ({
+        ...todo,
+        periodStart: todo.periodStart ?? getSelectedPeriodStart(),
+      })),
+    };
+    if ((hasLegacyPaymentFlags || hasLegacyCycleSetting || hasLegacyBudgets || hasLegacyTodoPeriods) && !saveData(state.data)) return false;
+    setSaveStatus("All changes saved");
     return true;
   } catch (error) {
     setSaveStatus("Unable to read saved data");
@@ -490,17 +690,53 @@ function formatAmount(amount) {
   return formatter.format(amount);
 }
 
-function getCycleStartDate(year, monthIndex) {
-  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
-  return new Date(year, monthIndex, Math.min(state.data.cycleStartDay, lastDay));
+function animateAmount(element, amount) {
+  const previous = amountAnimations.get(element);
+  const target = Math.round(amount * 100) / 100;
+  if (previous?.target === target) return;
+  if (previous?.frame) window.cancelAnimationFrame(previous.frame);
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    element.textContent = formatAmount(target);
+    amountAnimations.set(element, { value: target, target, frame: 0 });
+    return;
+  }
+
+  const start = previous?.value ?? 0;
+  const startedAt = performance.now();
+  const duration = 1100;
+  const animation = { value: start, target, frame: 0 };
+  amountAnimations.set(element, animation);
+  element.textContent = formatAmount(start);
+
+  function updateAmount(now) {
+    const progress = Math.min(1, (now - startedAt) / duration);
+    const easedProgress = 1 - (1 - progress) ** 3;
+    const current = Math.round((start + (target - start) * easedProgress) * 100) / 100;
+    animation.value = current;
+    element.textContent = formatAmount(current);
+
+    if (progress < 1) {
+      animation.frame = window.requestAnimationFrame(updateAmount);
+    } else {
+      animation.value = target;
+      animation.frame = 0;
+    }
+  }
+
+  animation.frame = window.requestAnimationFrame(updateAmount);
 }
 
-function getCurrentCycleMonth() {
+function getCycleStartDate(year, monthIndex, cycleStartDay = state.data.cycleStartDay) {
+  const lastDay = new Date(year, monthIndex + 1, 0).getDate();
+  return new Date(year, monthIndex, Math.min(cycleStartDay, lastDay));
+}
+
+function getCurrentCycleMonth(cycleStartDay = state.data.cycleStartDay) {
   const today = new Date();
-  const currentStart = getCycleStartDate(today.getFullYear(), today.getMonth());
+  const currentStart = getCycleStartDate(today.getFullYear(), today.getMonth(), cycleStartDay);
   const anchor = today >= currentStart
     ? currentStart
-    : getCycleStartDate(today.getFullYear(), today.getMonth() - 1);
+    : getCycleStartDate(today.getFullYear(), today.getMonth() - 1, cycleStartDay);
   return new Date(anchor.getFullYear(), anchor.getMonth(), 1);
 }
 
@@ -739,11 +975,12 @@ function renderOverview() {
   const total = transactions.reduce((sum, item) => sum + item.amount, 0);
   const creditTotal = creditTransactions.reduce((sum, item) => sum + item.amount, 0);
   const paidTotal = paidTransactions.reduce((sum, item) => sum + item.amount, 0);
-  elements.totalUsed.textContent = formatAmount(total);
-  elements.creditUsed.textContent = formatAmount(creditTotal);
-  elements.paidUsed.textContent = formatAmount(paidTotal);
+  animateAmount(elements.totalUsed, total);
+  animateAmount(elements.creditUsed, creditTotal);
+  animateAmount(elements.paidUsed, paidTotal);
   const budgetTotal = getPeriodBudgets().reduce((sum, budget) => sum + budget.amount, 0);
-  elements.totalBudget.textContent = formatAmount(budgetTotal - total);
+  animateAmount(elements.totalBudget, budgetTotal - total);
+  animateAmount(elements.donutTotal, total);
   elements.totalBudgetCaption.textContent = `${formatAmount(budgetTotal)} budget for this billing period`;
   const pendingCredit = creditTransactions.filter((item) => !item.isPaid).length;
   elements.creditUsedCaption.textContent = `${pendingCredit} still pending · all credit purchases`;
@@ -981,6 +1218,7 @@ function updateAll() {
   renderPending();
   renderTransactionList();
   renderBudgets();
+  renderTodoList();
   renderManageLists();
 }
 
@@ -1090,7 +1328,11 @@ function updateCycleStartDay() {
     renderCycleStartDayOptions();
     return;
   }
-  if (!saveData({ ...state.data, cycleStartDay })) {
+  const todos = state.data.todos.map((todo) => ({
+    ...todo,
+    periodStart: getCyclePeriodStartForDate(todo.periodStart, cycleStartDay),
+  }));
+  if (!saveData({ ...state.data, cycleStartDay, todos })) {
     elements.cycleStartDay.value = String(previousStartDay);
     return;
   }
@@ -1156,8 +1398,10 @@ async function exportData() {
   elements.backupStatus.classList.remove("is-error");
   if (window.ledgerNative) {
     try {
-      await window.ledgerNative.exportBackup(fileName, contents);
-      elements.backupStatus.textContent = "Choose an app or save location in the Android share sheet.";
+      const result = await window.ledgerNative.exportBackup(fileName, contents);
+      elements.backupStatus.textContent = result.cancelled
+        ? "Backup export cancelled."
+        : "Backup saved to the selected location.";
       elements.backupStatus.hidden = false;
       return;
     } catch (error) {
@@ -1208,6 +1452,7 @@ function setPage(page) {
     pending: elements.pendingPage,
     transactions: elements.transactionsPage,
     budgets: elements.budgetsPage,
+    todo: elements.todoPage,
   };
   Object.entries(pages).forEach(([pageName, pageElement]) => {
     const isCurrentPage = pageName === page;
@@ -1223,6 +1468,7 @@ function setPage(page) {
   else if (page === "pending") renderPending();
   else if (page === "transactions") renderTransactionList();
   else if (page === "budgets") renderBudgets();
+  else if (page === "todo") renderTodoList();
 }
 
 document.querySelectorAll(".nav-link").forEach((button) => {
@@ -1230,13 +1476,73 @@ document.querySelectorAll(".nav-link").forEach((button) => {
 });
 document.getElementById("previous-period").addEventListener("click", () => changeBillingPeriod(-1));
 document.getElementById("next-period").addEventListener("click", () => changeBillingPeriod(1));
-document.getElementById("add-transaction-button").addEventListener("click", openNewTransaction);
+window.matchMedia("(max-width: 580px)").addEventListener("change", renderBillingPeriod);
+
+const quickAddToggle = document.getElementById("quick-add-toggle");
+const quickAddMenu = document.getElementById("quick-add-menu");
+let quickAddCloseTimer;
+
+function setQuickAddMenuOpen(isOpen, restoreFocus = false) {
+  window.clearTimeout(quickAddCloseTimer);
+  quickAddToggle.setAttribute("aria-expanded", String(isOpen));
+  quickAddMenu.inert = !isOpen;
+
+  if (isOpen) {
+    quickAddMenu.hidden = false;
+    window.requestAnimationFrame(() => {
+      if (quickAddToggle.getAttribute("aria-expanded") === "true") quickAddMenu.classList.add("is-open");
+    });
+    quickAddMenu.querySelector("button").focus();
+    return;
+  }
+
+  quickAddMenu.classList.remove("is-open");
+  if (restoreFocus) quickAddToggle.focus();
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    quickAddMenu.hidden = true;
+  } else {
+    quickAddCloseTimer = window.setTimeout(() => {
+      if (quickAddToggle.getAttribute("aria-expanded") === "false") quickAddMenu.hidden = true;
+    }, 250);
+  }
+}
+
+quickAddToggle.addEventListener("click", () => {
+  setQuickAddMenuOpen(quickAddToggle.getAttribute("aria-expanded") !== "true");
+});
+document.addEventListener("click", (event) => {
+  if (!quickAddMenu.contains(event.target) && !quickAddToggle.contains(event.target)) {
+    setQuickAddMenuOpen(false);
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && quickAddToggle.getAttribute("aria-expanded") === "true") {
+    event.preventDefault();
+    setQuickAddMenuOpen(false, true);
+  }
+});
+document.getElementById("add-budget-button").addEventListener("click", () => {
+  setQuickAddMenuOpen(false);
+  openNewBudget();
+});
+document.getElementById("add-transaction-button").addEventListener("click", () => {
+  setQuickAddMenuOpen(false);
+  openNewTransaction();
+});
+document.getElementById("add-todo-button").addEventListener("click", () => {
+  setQuickAddMenuOpen(false);
+  setPage("todo");
+  elements.todoInput.focus();
+});
+
 function openManageDialog() {
   openDialog(elements.manageDialog);
 }
 
 document.getElementById("manage-data-button").addEventListener("click", openManageDialog);
-document.getElementById("add-budget-button").addEventListener("click", openNewBudget);
+document.getElementById("mobile-manage-data-button").addEventListener("click", openManageDialog);
+document.getElementById("sidebar-manage-data-button").addEventListener("click", openManageDialog);
+elements.todoForm.addEventListener("submit", addTodo);
 elements.checkAndroidUpdateButton.addEventListener("click", checkForAndroidUpdate);
 elements.installAndroidUpdateButton.addEventListener("click", installAndroidUpdate);
 document.getElementById("export-data-button").addEventListener("click", exportData);

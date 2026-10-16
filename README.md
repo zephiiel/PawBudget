@@ -1,6 +1,6 @@
 # PawBudget
 
-A friendly monthly money tracker that runs entirely in your browser. No account, server, network connection, or third-party library is required. Transactions, budgets, categories, and accounts are saved automatically in browser storage on the current device. The app displays a save confirmation after each change; no manual save button is needed.
+A friendly monthly money tracker that runs entirely in your browser. No account, server, network connection, or third-party library is required. Transactions, budgets, billing-cycle to-do items, categories, and accounts are saved automatically in browser storage on the current device. The app displays a save confirmation after each change; no manual save button is needed.
 
 ## Run offline
 
@@ -24,11 +24,11 @@ npm run android:sync
 npm run android:open
 ```
 
-In Android Studio, wait for Gradle sync, then run the app on a connected Android device/emulator or use **Build > Build Bundle(s) / APK(s) > Build APK(s)**. The debug APK is created at `android/app/build/outputs/apk/debug/app-debug.apk`. Android **Export backup** opens the system share sheet so you can save or send the JSON file. The app stores data on the device in its app storage. Browser data does not transfer automatically; export the backup in one app and import it in the other. Uninstalling the Android app may remove its local data, so keep backups.
+In Android Studio, wait for Gradle sync, then run the app on a connected Android device/emulator or use **Build > Build Bundle(s) / APK(s) > Build APK(s)**. The debug APK is created at `android/app/build/outputs/apk/debug/app-debug.apk`. Android **Export backup** opens the system file picker so you can choose a folder and save the UTF-8 JSON file directly. The app stores data on the device in its app storage. Browser data does not transfer automatically; export the backup in one app and import it in the other. Uninstalling the Android app may remove its local data, so keep backups.
 
 ### Android updates
 
-The Android app checks the latest public GitHub Release when it starts and offers a download in **Settings & lists**. The current app version is `1.3` (`versionCode` 4). To publish it, make this GitHub repository public, build a signed APK, and attach the `.apk` file to a GitHub Release tagged `v1.3`. For future releases, increment `versionCode` and set `versionName` to match the numeric release tag. Keep using the same signing key for every APK so Android accepts it as an update. Users must allow PawBudget to install apps from this source when Android requests it and confirm the installation in Android’s package installer. Updates are never installed silently.
+The Android app checks the latest public GitHub Release when it starts and offers a download in **Settings & lists**. Downloading an update shows byte and percentage progress when the release server provides its file size, then opens Android’s package installer after the APK has downloaded and passed archive validation. The current app version is `1.4` (`versionCode` 5). To publish it, make this GitHub repository public, build a signed APK, and attach the `.apk` file to a GitHub Release tagged `v1.4`. For future releases, increment `versionCode` and set `versionName` to match the numeric release tag. Keep using the same signing key for every APK so Android accepts it as an update. Users must allow PawBudget to install apps from this source when Android requests it and confirm the installation in Android’s package installer. Updates are never installed silently.
 
 ## Publish with GitHub Pages
 

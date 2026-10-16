@@ -1,26 +1,16 @@
-import { Directory, Filesystem } from "@capacitor/filesystem";
-import { Share } from "@capacitor/share";
 import { registerPlugin } from "@capacitor/core";
 
 const ApkUpdater = registerPlugin("ApkUpdater");
 
 window.ledgerNative = {
   async exportBackup(fileName, contents) {
-    const file = await Filesystem.writeFile({
-      path: fileName,
-      data: contents,
-      directory: Directory.Cache,
-      mimeType: "application/json",
-    });
-    await Share.share({
-      title: "PawBudget backup",
-      text: "Save or share your PawBudget backup file.",
-      files: [file.uri],
-      dialogTitle: "Export backup",
-    });
+    return ApkUpdater.exportBackup({ fileName, contents });
   },
   getAppVersion() {
     return ApkUpdater.getAppVersion();
+  },
+  addDownloadProgressListener(listener) {
+    return ApkUpdater.addListener("downloadProgress", listener);
   },
   installApk(url) {
     return ApkUpdater.installApk({ url });
