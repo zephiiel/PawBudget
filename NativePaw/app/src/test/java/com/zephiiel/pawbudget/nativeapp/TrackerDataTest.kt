@@ -50,6 +50,7 @@ class TrackerDataTest {
         val data = TrackerData.fromBackup(backup)
 
         assertEquals(15, data.cycleStartDay)
+        assertEquals(emptyList<String>(), data.excludedBudgetAccounts)
         assertEquals(false, data.transactions.single().isPaid)
         assertEquals(125.5, data.transactions.single().amount, 0.0)
         assertEquals("Alex", data.budgets.single().person)
@@ -137,6 +138,43 @@ class TrackerDataTest {
         )
 
         assertEquals(850.0, budgetAfterSelectedTodos(1000.0, selected), 0.0)
+    }
+
+    @Test
+    fun excludedBudgetAccountsPersistAndDoNotReduceRemainingBudget() {
+        val transaction = Transaction("txn-1", "2026-10-17", "Purchase", "Other", 125.0, "Cash", "paid", true)
+        val data = TrackerData(
+            accounts = listOf("Cash", "Card"),
+            transactions = listOf(transaction),
+            excludedBudgetAccounts = listOf("Cash"),
+            excludedTotalUsedAccounts = listOf("Card"),
+        )
+
+        assertEquals(data, TrackerData.fromBackup(data.toJson()))
+        assertEquals(500.0, budgetRemaining(500.0, listOf(transaction), data.excludedBudgetAccounts.toSet()), 0.0)
+        assertEquals(125.0, totalUsed(listOf(transaction), data.excludedTotalUsedAccounts.toSet()), 0.0)
+        assertEquals(0.0, totalUsed(listOf(transaction), data.excludedBudgetAccounts.toSet()), 0.0)
+    }
+
+    @Test
+    fun totalUsedCanExcludeAccountsIndependentlyOfBudgetExclusions() {
+        val transactions = listOf(
+            Transaction("cash", "2026-10-17", "Cash", "Other", 100.0, "Cash", "paid", true),
+            Transaction("card", "2026-10-17", "Card", "Other", 200.0, "Card", "credit", false),
+        )
+
+        assertEquals(200.0, totalUsed(transactions, setOf("Cash")), 0.0)
+        assertEquals(100.0, totalUsed(transactions, setOf("Card")), 0.0)
+    }
+
+    @Test
+    fun selectedPaymentsReduceProjectedBudgetByTheirCombinedAmount() {
+        val selected = listOf(
+            Transaction("txn-1", "2026-10-17", "First", "Other", 125.0, "Cash", "credit", false),
+            Transaction("txn-2", "2026-10-17", "Second", "Other", 75.0, "Cash", "credit", true),
+        )
+
+        assertEquals(300.0, budgetAfterSelectedPayments(500.0, selected), 0.0)
     }
 
     @Test(expected = IllegalArgumentException::class)

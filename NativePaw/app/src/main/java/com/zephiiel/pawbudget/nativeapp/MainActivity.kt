@@ -180,6 +180,8 @@ private fun PawBudgetApp(store: TrackerStore) {
     var editedTransaction by remember { mutableStateOf<Transaction?>(null) }
     var budgetDialog by remember { mutableStateOf(false) }
     var editedBudget by remember { mutableStateOf<Budget?>(null) }
+    var budgetAccountDialog by remember { mutableStateOf(false) }
+    var totalUsedAccountDialog by remember { mutableStateOf(false) }
     var todoDialog by remember { mutableStateOf(false) }
     var editedTodo by remember { mutableStateOf<PeriodTodo?>(null) }
     var showImportConfirmation by remember { mutableStateOf(false) }
@@ -353,25 +355,19 @@ private fun PawBudgetApp(store: TrackerStore) {
                         editedTransaction = null
                         transactionDialog = true
                     },
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("Transaction") },
                     containerColor = Forest,
                     contentColor = Color.White,
-                )
+                ) { CompactAddFabContent("Transaction") }
                 Page.Budgets -> ExtendedFloatingActionButton(
                     onClick = { editedBudget = null; budgetDialog = true },
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("Budget") },
                     containerColor = Forest,
                     contentColor = Color.White,
-                )
+                ) { CompactAddFabContent("Budget") }
                 Page.Todo -> ExtendedFloatingActionButton(
                     onClick = { editedTodo = null; todoDialog = true },
-                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                    text = { Text("Task") },
                     containerColor = Forest,
                     contentColor = Color.White,
-                )
+                ) { CompactAddFabContent("Task") }
                 Page.Pending, Page.Settings -> Unit
             }
         },
@@ -380,6 +376,8 @@ private fun PawBudgetApp(store: TrackerStore) {
         when (page) {
             Page.Overview -> OverviewPage(
                 data, periodTransactions, selectedMonth,
+                onEditBudgetExclusions = { budgetAccountDialog = true },
+                onEditTotalUsedExclusions = { totalUsedAccountDialog = true },
                 onCategory = { category -> filter = TransactionFilter(category) { it.category == category }; page = Page.Transactions },
                 onAccount = { account -> filter = TransactionFilter(account) { it.account == account }; page = Page.Transactions },
                 modifier = Modifier.padding(padding),
@@ -398,6 +396,11 @@ private fun PawBudgetApp(store: TrackerStore) {
             Page.Pending -> PendingPage(
                 periodTransactions,
                 selectedPendingIds,
+                remainingBudget = budgetRemaining(
+                    data.budgets.filter { it.periodStart == periodStartLabel(selectedMonth, data.cycleStartDay) }.sumOf { it.amount },
+                    periodTransactions,
+                    data.excludedBudgetAccounts.toSet(),
+                ),
                 onSelect = { id, selected -> selectedPendingIds = if (selected) selectedPendingIds + id else selectedPendingIds - id },
                 onClearSelection = { selectedPendingIds = emptySet() },
                 onSetPaid = { id, paid ->
@@ -428,9 +431,11 @@ private fun PawBudgetApp(store: TrackerStore) {
             Page.Todo -> TodoPage(
                 data.todos.filter { it.periodStart == periodStartLabel(selectedMonth, data.cycleStartDay) },
                 selectedIds = selectedTodoIds,
-                remainingBudget = data.budgets
-                    .filter { it.periodStart == periodStartLabel(selectedMonth, data.cycleStartDay) }
-                    .sumOf { it.amount } - periodTransactions.sumOf { it.amount },
+                remainingBudget = budgetRemaining(
+                    data.budgets.filter { it.periodStart == periodStartLabel(selectedMonth, data.cycleStartDay) }.sumOf { it.amount },
+                    periodTransactions,
+                    data.excludedBudgetAccounts.toSet(),
+                ),
                 onSelect = { id, selected -> selectedTodoIds = if (selected) selectedTodoIds + id else selectedTodoIds - id },
                 onClearSelection = { selectedTodoIds = emptySet() },
                 onSetSelectedCompleted = {
@@ -549,6 +554,20 @@ private fun PawBudgetApp(store: TrackerStore) {
             },
         )
     }
+    if (totalUsedAccountDialog) {
+        BudgetAccountExclusionDialog(
+            accounts = (data.accounts + data.transactions.map { it.account }).distinct().sorted(),
+            excludedAccounts = data.excludedTotalUsedAccounts.toSet(),
+            title = "Exclude accounts from total used",
+            description = "Choose accounts whose transactions should not count toward total used.",
+            onDismiss = { totalUsedAccountDialog = false },
+            onSave = { excludedAccounts ->
+                if (persist(data.copy(excludedTotalUsedAccounts = excludedAccounts.sorted()))) {
+                    totalUsedAccountDialog = false
+                }
+            },
+        )
+    }
     if (budgetDialog) {
         BudgetEditor(
             initial = editedBudget,
@@ -559,6 +578,20 @@ private fun PawBudgetApp(store: TrackerStore) {
                 val budget = Budget(existing?.id ?: UUID.randomUUID().toString(), existing?.periodStart ?: periodStartLabel(selectedMonth, data.cycleStartDay), person.trim(), amount)
                 val budgets = if (existing == null) data.budgets + budget else data.budgets.map { if (it.id == existing.id) budget else it }
                 if (persist(data.copy(budgets = budgets))) budgetDialog = false
+            },
+        )
+    }
+    if (budgetAccountDialog) {
+        BudgetAccountExclusionDialog(
+            accounts = (data.accounts + data.transactions.map { it.account }).distinct().sorted(),
+            excludedAccounts = data.excludedBudgetAccounts.toSet(),
+            title = "Exclude accounts from budget",
+            description = "Choose accounts whose transactions should not reduce your budget remaining.",
+            onDismiss = { budgetAccountDialog = false },
+            onSave = { excludedAccounts ->
+                if (persist(data.copy(excludedBudgetAccounts = excludedAccounts.sorted()))) {
+                    budgetAccountDialog = false
+                }
             },
         )
     }
@@ -626,16 +659,19 @@ private fun OverviewPage(
     data: TrackerData,
     transactions: List<Transaction>,
     month: YearMonth,
+    onEditBudgetExclusions: () -> Unit,
+    onEditTotalUsedExclusions: () -> Unit,
     onCategory: (String) -> Unit,
     onAccount: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val total = transactions.sumOf { it.amount }
+    val totalUsedAmount = totalUsed(transactions, data.excludedTotalUsedAccounts.toSet())
     val paid = transactions.filter { it.paymentType == "paid" }.sumOf { it.amount }
     val credit = transactions.filter { it.paymentType == "credit" }.sumOf { it.amount }
     val budgets = data.budgets.filter { it.periodStart == periodStartLabel(month, data.cycleStartDay) }
     val budgetTotal = budgets.sumOf { it.amount }
-    val remaining = budgetTotal - total
+    val remaining = budgetRemaining(budgetTotal, transactions, data.excludedBudgetAccounts.toSet())
     val categoryTotals = transactions.groupBy { it.category }.mapValues { (_, rows) -> rows.sumOf { it.amount } }
         .toList().sortedByDescending { it.second }
     val accountTotals = transactions.groupBy { it.account }.mapValues { (_, rows) -> rows.sumOf { it.amount } }
@@ -659,16 +695,19 @@ private fun OverviewPage(
                     SummaryCard(
                         "Budget remaining",
                         money(remaining),
-                        "${money(budgetTotal)} budget · ${money(total)} used",
+                        "${money(budgetTotal)} total budget",
                         Forest,
                         Modifier.weight(1f),
+                        onEdit = onEditBudgetExclusions,
                     )
                     SummaryCard(
                         "Total used",
-                        money(total),
+                        money(totalUsedAmount),
                         "Paid and credit spending",
                         Ink,
                         Modifier.weight(1f),
+                        onEdit = onEditTotalUsedExclusions,
+                        editDescription = "Edit excluded total used accounts",
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -756,17 +795,90 @@ private fun transactionsForYearPeriod(transactions: List<Transaction>, month: Ye
 }
 
 @Composable
-private fun SummaryCard(title: String, amount: String, caption: String, background: Color, modifier: Modifier = Modifier) {
+private fun SummaryCard(
+    title: String,
+    amount: String,
+    caption: String,
+    background: Color,
+    modifier: Modifier = Modifier,
+    onEdit: (() -> Unit)? = null,
+    editDescription: String = "Edit excluded budget accounts",
+) {
     Card(
         modifier.fillMaxWidth().height(124.dp),
         colors = CardDefaults.cardColors(containerColor = background, contentColor = if (background == Ink || background == Forest) Color.White else Ink),
     ) {
         Column(Modifier.padding(12.dp)) {
-            Text(title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(title, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.weight(1f))
+                if (onEdit != null) {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Settings, contentDescription = editDescription, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
             Text(amount, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 5.dp), maxLines = 1, softWrap = false)
             Text(caption, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp), color = if (background == Ink || background == Forest) Color.White.copy(alpha = 0.78f) else Color.Gray, maxLines = 2)
         }
     }
+}
+
+@Composable
+private fun CompactAddFabContent(label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(0.dp)) {
+        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+        Text(label)
+    }
+}
+
+@Composable
+private fun BudgetAccountExclusionDialog(
+    accounts: List<String>,
+    excludedAccounts: Set<String>,
+    title: String,
+    description: String,
+    onDismiss: () -> Unit,
+    onSave: (Set<String>) -> Unit,
+) {
+    var selected by remember(excludedAccounts) { mutableStateOf(excludedAccounts) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            if (accounts.isEmpty()) {
+                Text("Add an account or transaction first to exclude it from your budget calculation.")
+            } else {
+                Column(
+                    Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(description)
+                    accounts.forEach { account ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable {
+                                selected = if (account in selected) selected - account else selected + account
+                            }.padding(vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = account in selected,
+                                onCheckedChange = { checked ->
+                                    selected = if (checked) selected + account else selected - account
+                                },
+                            )
+                            Text(account, modifier = Modifier.padding(start = 4.dp))
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(selected) }) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @Composable
@@ -869,6 +981,7 @@ private fun TransactionCard(transaction: Transaction, onEdit: (Transaction) -> U
 private fun PendingPage(
     transactions: List<Transaction>,
     selectedIds: Set<String>,
+    remainingBudget: Double,
     onSelect: (String, Boolean) -> Unit,
     onClearSelection: () -> Unit,
     onSetPaid: (String, Boolean) -> Unit,
@@ -891,11 +1004,19 @@ private fun PendingPage(
             item {
                 CardBlock {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            "${chosen.size} selected · ${money(chosen.sumOf { it.amount })}",
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.weight(1f),
-                        )
+                        Column(Modifier.weight(1f)) {
+                            Text("${chosen.size} selected", fontWeight = FontWeight.SemiBold)
+                            Text(
+                                "Total amount · ${money(chosen.sumOf { it.amount })}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray,
+                            )
+                            Text(
+                                "Budget after selected payments · ${money(budgetAfterSelectedPayments(remainingBudget, chosen))}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Forest,
+                            )
+                        }
                         TextButton(onClick = onClearSelection) { Text("Deselect All") }
                     }
                     Button(onClick = onSetSelectedPaid, modifier = Modifier.padding(top = 8.dp)) {
@@ -917,19 +1038,39 @@ private fun PendingPage(
 
 @Composable
 private fun CreditPaymentCard(item: Transaction, selected: Boolean, onSelect: (Boolean) -> Unit, onTogglePaid: () -> Unit) {
-    CardBlock(background = if (item.isPaid) Color(0xFFF0EEE7) else Color(0xFFFFFEFA)) {
+    CardBlock(background = if (item.isPaid) Color(0xFFF0EEE7) else Color(0xFFFFFEFA), contentPadding = 10.dp, spacing = 2.dp) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = selected, onCheckedChange = onSelect)
-            Column(Modifier.weight(1f).padding(start = 4.dp)) {
-                Text(item.description, fontWeight = FontWeight.SemiBold)
-                Text("${displayDate(item.date)} · ${item.account}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            Column(
+                Modifier.weight(1f).padding(start = 4.dp, end = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(1.dp),
+            ) {
+                Text(
+                    item.description,
+                    fontWeight = FontWeight.SemiBold,
+                    textDecoration = if (item.isPaid) TextDecoration.LineThrough else TextDecoration.None,
+                    color = if (item.isPaid) Color.Gray else Ink,
+                    maxLines = 1,
+                )
+                Text(
+                    "${item.category} · ${item.account}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.Gray,
+                    maxLines = 1,
+                )
+                Text(
+                    displayDate(item.date),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Forest,
+                    maxLines = 1,
+                )
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(money(item.amount), fontWeight = FontWeight.SemiBold)
+                Text(money(item.amount), fontWeight = FontWeight.SemiBold, maxLines = 1)
                 TextButton(
                     onClick = onTogglePaid,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp, vertical = 2.dp),
-                ) { Text(if (item.isPaid) "Mark unpaid" else "Mark paid") }
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                ) { Text(if (item.isPaid) "Mark unpaid" else "Mark paid", style = MaterialTheme.typography.labelMedium) }
             }
         }
     }
@@ -1029,19 +1170,19 @@ private fun TodoPage(
         }
         if (todos.isEmpty()) item { EmptyMessage("No tasks for this billing period yet. Add one to get started.") }
         items(todos.sortedBy { it.completed }, key = { it.id }) { todo ->
-            CardBlock(background = if (todo.completed) Color(0xFFF0EEE7) else Color(0xFFFFFEFA)) {
+            CardBlock(background = if (todo.completed) Color(0xFFF0EEE7) else Color(0xFFFFFEFA), contentPadding = 10.dp, spacing = 2.dp) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = todo.id in selectedIds, onCheckedChange = { onSelect(todo.id, it) })
-                    Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                        Text(
-                            todo.title,
-                            color = if (todo.completed) Color.Gray else Ink,
-                            textDecoration = if (todo.completed) TextDecoration.LineThrough else TextDecoration.None,
-                        )
-                        todo.amount?.let { Text(money(it), style = MaterialTheme.typography.bodySmall, color = Color.Gray) }
-                    }
-                    IconButton(onClick = { onEdit(todo) }) { Icon(Icons.Default.Edit, "Edit task") }
-                    IconButton(onClick = { onDelete(todo) }) { Icon(Icons.Default.Delete, "Delete task", tint = Color(0xFF9D5145)) }
+                    Text(
+                        todo.title,
+                        color = if (todo.completed) Color.Gray else Ink,
+                        textDecoration = if (todo.completed) TextDecoration.LineThrough else TextDecoration.None,
+                        maxLines = 2,
+                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                    )
+                    todo.amount?.let { Text(money(it), style = MaterialTheme.typography.bodySmall, color = Color.Gray, maxLines = 1) }
+                    IconButton(onClick = { onEdit(todo) }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Edit, "Edit task", modifier = Modifier.size(18.dp)) }
+                    IconButton(onClick = { onDelete(todo) }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Delete, "Delete task", tint = Color(0xFF9D5145), modifier = Modifier.size(18.dp)) }
                 }
             }
         }
@@ -1399,6 +1540,8 @@ private fun SelectionField(label: String, selected: String, options: List<String
 @Composable
 private fun CardBlock(
     background: Color = Color(0xFFFFFEFA),
+    contentPadding: androidx.compose.ui.unit.Dp = 14.dp,
+    spacing: androidx.compose.ui.unit.Dp = 6.dp,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Card(
@@ -1407,7 +1550,7 @@ private fun CardBlock(
         colors = CardDefaults.cardColors(containerColor = background),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp), content = content)
+        Column(Modifier.padding(contentPadding), verticalArrangement = Arrangement.spacedBy(spacing), content = content)
     }
 }
 
