@@ -2,6 +2,7 @@ package com.zephiiel.pawbudget.nativeapp
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
@@ -100,10 +101,48 @@ class TrackerDataTest {
     }
 
     @Test
+    fun movedTransactionsKeepTheirDateAndAssignedBillingPeriodInBackups() {
+        val transaction = Transaction(
+            id = "txn-moved",
+            date = "2026-10-14",
+            description = "After cutoff",
+            category = "Other",
+            amount = 100.0,
+            account = "Cash",
+            paymentType = "credit",
+            isPaid = false,
+            billingPeriodStart = "2026-10-15",
+        )
+        val data = TrackerData(transactions = listOf(transaction))
+
+        assertEquals("2026-09-15", transactionPeriodStart(transaction, 15))
+        assertEquals("2026-10-15", transactionStatementPeriodStart(transaction, 15))
+        assertEquals(listOf(transaction), transactionsForPeriod(data.transactions, YearMonth.of(2026, 9), 15))
+        assertTrue(transactionsForPeriod(data.transactions, YearMonth.of(2026, 10), 15).isEmpty())
+        assertTrue(transactionsForStatementPeriod(data.transactions, YearMonth.of(2026, 9), 15).isEmpty())
+        assertEquals(listOf(transaction), transactionsForStatementPeriod(data.transactions, YearMonth.of(2026, 10), 15))
+        assertEquals(
+            400.0,
+            budgetRemaining(500.0, transactionsForPeriod(data.transactions, YearMonth.of(2026, 9), 15), emptySet()),
+            0.0,
+        )
+        assertEquals(transaction, TrackerData.fromBackup(data.toJson()).transactions.single())
+    }
+
+    @Test
     fun releaseVersionComparisonHandlesOptionalPatchComponents() {
         assertTrue(compareVersions(listOf(1, 2, 1), listOf(1, 2, 0)) > 0)
         assertEquals(0, compareVersions(listOf(1, 2), listOf(1, 2, 0)))
         assertTrue(compareVersions(listOf(2, 0, 0), listOf(1, 9, 9)) > 0)
+    }
+
+    @Test
+    fun nativeUpdaterRecognizesPublishedPawBudgetReleaseAssetNames() {
+        assertTrue(isNativeUpdateApkAsset("PawBudget.v2.1.apk", "v2.1"))
+        assertTrue(isNativeUpdateApkAsset("NativePaw-2.1.apk", "v2.1"))
+        assertTrue(isNativeUpdateApkAsset("NativePaw-2.2.apk", "v2.2"))
+        assertFalse(isNativeUpdateApkAsset("app-debug.apk", "v2.1"))
+        assertFalse(isNativeUpdateApkAsset("PawBudget.v2.0.apk", "v2.1"))
     }
 
     @Test
@@ -165,16 +204,6 @@ class TrackerDataTest {
 
         assertEquals(200.0, totalUsed(transactions, setOf("Cash")), 0.0)
         assertEquals(100.0, totalUsed(transactions, setOf("Card")), 0.0)
-    }
-
-    @Test
-    fun selectedPaymentsReduceProjectedBudgetByTheirCombinedAmount() {
-        val selected = listOf(
-            Transaction("txn-1", "2026-10-17", "First", "Other", 125.0, "Cash", "credit", false),
-            Transaction("txn-2", "2026-10-17", "Second", "Other", 75.0, "Cash", "credit", true),
-        )
-
-        assertEquals(300.0, budgetAfterSelectedPayments(500.0, selected), 0.0)
     }
 
     @Test(expected = IllegalArgumentException::class)

@@ -16,9 +16,10 @@ The APK is written to `app\build\outputs\apk\debug\app-debug.apk`.
 
 ## Features
 
-- Billing-period overview with budget remaining and total used, each with independent configurable account exclusions, plus paid spending, credit spending, category and account charts, and yearly period spending.
-- Add, edit, and delete transactions; filter transactions by tapping a category or account chart.
-- Pending and paid credit payment lists, individual status changes, and bulk status changes with selected-payment budget projections.
+- Billing-period overview with budget remaining and total used, each with independent configurable account exclusions, plus account totals for paid and credit spending, category and account charts, and yearly period spending.
+- Add, edit, and delete transactions from transaction cards and their edit dialog; filter transactions by tapping a category or account chart.
+- Pending and paid credit payment lists, bulk paid-status changes, and moving selected unpaid payments to the next statement period without changing the actual spending period, transaction date, budgets, or spending graphs.
+- Budget cards open their editor, where budgets can also be deleted.
 - Billing-period budgets and to-do items with optional task amounts, compact selectable cards, multi-select totals, projected remaining-budget totals, and bulk completion.
 - Configurable billing-cycle start day (1st–31st, with short months ending on their last day).
 - On-device automatic persistence and Android system file picker for JSON backup import/export.
@@ -26,4 +27,4 @@ The APK is written to `app\build\outputs\apk\debug\app-debug.apk`.
 
 NativePaw uses the existing Android application ID `com.zephiiel.ledger` so a correctly signed version can replace the Capacitor app. NativePaw supports the existing `ledger-monthly-tracker` version 1 JSON backup format to transfer data from the web or Capacitor app; import a backup after installing because the native app cannot directly read data kept in the old WebView.
 
-NativePaw version `2.1` uses `versionCode` 7, above the previous release's version code 6 and the Capacitor app's version code 5. To publish it, attach a release-signed APK named `NativePaw-2.1.apk` to a public GitHub Release tagged `v2.1`. Keep using the same signing key as the installed Capacitor APK; Android will reject an update signed with a different key. Release signing is not configured in this project, so provide the existing key securely in Android Studio/Gradle before publishing. The updater checks GitHub only when the user selects **Check for updates** and only offers APK assets named `NativePaw-*.apk`.
+NativePaw version `2.2` uses `versionCode` 8, above version 2.1's version code 7. Attach a release-signed APK to a public GitHub Release tagged `v2.2`, preferably named `NativePaw-2.2.apk` so older installed app versions can recognize it. The current updater also recognizes `PawBudget.v2.2.apk`. A Gradle debug APK can be renamed for recognition, but it is signed with the debug key and can update only an installation signed with that same key; Android rejects updates signed with a different key. Keep using the same signing key as the installed app. Release signing is not configured in this project, so provide the existing key securely in Android Studio/Gradle before publishing. The updater checks GitHub only when the user selects **Check for updates**.

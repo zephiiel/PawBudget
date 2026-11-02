@@ -15,6 +15,7 @@ data class Transaction(
     val paymentType: String,
     val isPaid: Boolean,
     val createdAt: Long = 0L,
+    val billingPeriodStart: String? = null,
 )
 
 data class Budget(
@@ -58,6 +59,7 @@ data class TrackerData(
                     put("paymentType", item.paymentType)
                     put("isPaid", item.isPaid)
                     if (item.createdAt > 0L) put("createdAt", item.createdAt)
+                    item.billingPeriodStart?.let { put("billingPeriodStart", it) }
                 })
             }
         })
@@ -127,6 +129,9 @@ data class TrackerData(
                 require(amount.isFinite() && amount > 0.0) { "Transaction amounts must be greater than zero." }
                 val date = item.getString("date")
                 LocalDate.parse(date)
+                val billingPeriodStart = item.optString("billingPeriodStart")
+                    .takeIf { it.isNotBlank() && it != "null" }
+                billingPeriodStart?.let(LocalDate::parse)
                 Transaction(
                     id = item.getString("id"),
                     date = date,
@@ -137,6 +142,7 @@ data class TrackerData(
                     paymentType = paymentType,
                     isPaid = item.optBoolean("isPaid", paymentType == "paid"),
                     createdAt = item.optLong("createdAt", 0L),
+                    billingPeriodStart = billingPeriodStart,
                 )
             }
             val budgets = data.optJSONArray("budgets").toObjectList { item ->
@@ -208,6 +214,30 @@ fun periodEnd(month: YearMonth, day: Int): LocalDate =
 fun periodStartLabel(month: YearMonth, day: Int): String =
     cycleStartDate(month, day).toString()
 
+fun transactionPeriodStart(transaction: Transaction, cycleStartDay: Int): String =
+    periodStartFor(LocalDate.parse(transaction.date), cycleStartDay).toString()
+
+fun transactionStatementPeriodStart(transaction: Transaction, cycleStartDay: Int): String =
+    transaction.billingPeriodStart ?: transactionPeriodStart(transaction, cycleStartDay)
+
+fun transactionsForPeriod(
+    transactions: List<Transaction>,
+    month: YearMonth,
+    cycleStartDay: Int,
+): List<Transaction> {
+    val periodStart = periodStartLabel(month, cycleStartDay)
+    return transactions.filter { transactionPeriodStart(it, cycleStartDay) == periodStart }
+}
+
+fun transactionsForStatementPeriod(
+    transactions: List<Transaction>,
+    month: YearMonth,
+    cycleStartDay: Int,
+): List<Transaction> {
+    val periodStart = periodStartLabel(month, cycleStartDay)
+    return transactions.filter { transactionStatementPeriodStart(it, cycleStartDay) == periodStart }
+}
+
 fun budgetAfterSelectedTodos(remainingBudget: Double, selectedTodos: List<PeriodTodo>): Double =
     remainingBudget - selectedTodos.sumOf { it.amount ?: 0.0 }
 
@@ -219,6 +249,3 @@ fun budgetRemaining(
 
 fun totalUsed(transactions: List<Transaction>, excludedAccounts: Set<String>): Double =
     transactions.filterNot { it.account in excludedAccounts }.sumOf { it.amount }
-
-fun budgetAfterSelectedPayments(remainingBudget: Double, selected: List<Transaction>): Double =
-    remainingBudget - selected.sumOf { it.amount }

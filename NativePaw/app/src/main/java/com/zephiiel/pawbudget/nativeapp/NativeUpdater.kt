@@ -52,9 +52,7 @@ suspend fun checkForNativeUpdate(installedVersion: String): UpdateCheckResult =
             val nativeApk = release.optJSONArray("assets")
                 ?.let { assets -> (0 until assets.length()).mapNotNull(assets::optJSONObject) }
                 ?.firstOrNull { asset ->
-                    asset.optString("name").lowercase(Locale.ROOT).let {
-                        it.startsWith("nativepaw-") && it.endsWith(".apk")
-                    }
+                    isNativeUpdateApkAsset(asset.optString("name"), tag)
                 }
             val downloadUrl = nativeApk?.optString("browser_download_url")
                 ?.takeIf(String::isNotBlank)
@@ -69,6 +67,12 @@ suspend fun checkForNativeUpdate(installedVersion: String): UpdateCheckResult =
             connection.disconnect()
         }
     }
+
+internal fun isNativeUpdateApkAsset(name: String, releaseTag: String): Boolean {
+    val normalizedName = name.lowercase(Locale.ROOT)
+    return (normalizedName.startsWith("nativepaw-") && normalizedName.endsWith(".apk")) ||
+        normalizedName == "pawbudget.${releaseTag.lowercase(Locale.ROOT)}.apk"
+}
 
 suspend fun downloadAndOpenNativeUpdate(
     context: Context,

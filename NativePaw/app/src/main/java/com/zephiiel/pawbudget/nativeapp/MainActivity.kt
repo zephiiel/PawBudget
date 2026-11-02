@@ -42,7 +42,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -119,7 +118,6 @@ private val ChartColors = listOf(Ink, Forest, Sage, Gold, Color(0xFFD9C8A8))
 private val PhilippinesLocale = Builder().setLanguage("en").setRegion("PH").build()
 private val Currency = NumberFormat.getCurrencyInstance(PhilippinesLocale)
 private val DateFormat = DateTimeFormatter.ofPattern("d MMM yyyy", PhilippinesLocale)
-private val MonthFormat = DateTimeFormatter.ofPattern("MMMM yyyy", PhilippinesLocale)
 
 private enum class Page(val label: String, val symbol: String) {
     Overview("Overview", "◫"),
@@ -182,6 +180,7 @@ private fun PawBudgetApp(store: TrackerStore) {
     var editedBudget by remember { mutableStateOf<Budget?>(null) }
     var budgetAccountDialog by remember { mutableStateOf(false) }
     var totalUsedAccountDialog by remember { mutableStateOf(false) }
+    var accountTotalsPaymentType by remember { mutableStateOf<String?>(null) }
     var todoDialog by remember { mutableStateOf(false) }
     var editedTodo by remember { mutableStateOf<PeriodTodo?>(null) }
     var showImportConfirmation by remember { mutableStateOf(false) }
@@ -257,12 +256,12 @@ private fun PawBudgetApp(store: TrackerStore) {
     }
 
     val periodTransactions = remember(data.transactions, selectedMonth, data.cycleStartDay) {
-        val start = cycleStartDate(selectedMonth, data.cycleStartDay)
-        val end = periodEnd(selectedMonth, data.cycleStartDay)
-        data.transactions.filter {
-            val date = runCatching { LocalDate.parse(it.date) }.getOrNull()
-            date != null && date >= start && date <= end
-        }.sortedWith(compareByDescending<Transaction> { it.date }.thenByDescending { it.createdAt })
+        transactionsForPeriod(data.transactions, selectedMonth, data.cycleStartDay)
+            .sortedWith(compareByDescending<Transaction> { it.date }.thenByDescending { it.createdAt })
+    }
+    val statementPeriodTransactions = remember(data.transactions, selectedMonth, data.cycleStartDay) {
+        transactionsForStatementPeriod(data.transactions, selectedMonth, data.cycleStartDay)
+            .sortedWith(compareByDescending<Transaction> { it.date }.thenByDescending { it.createdAt })
     }
 
     Scaffold(
@@ -286,16 +285,41 @@ private fun PawBudgetApp(store: TrackerStore) {
                             if (page != Page.Settings) {
                                 Image(
                                     painter = painterResource(R.drawable.pawbudget_icon),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(48.dp).padding(end = 8.dp),
+                                    contentDescription = "Open settings and lists",
+                                    modifier = Modifier.size(48.dp).padding(end = 8.dp).clickable { page = Page.Settings },
                                 )
                             }
                             Text(if (page == Page.Settings) "Settings & lists" else "PawBudget", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         }
                     }
                     if (page != Page.Settings) {
-                        IconButton(onClick = { page = Page.Settings }) {
-                            Icon(Icons.Default.Settings, contentDescription = "Settings and lists")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = {
+                                    selectedMonth = selectedMonth.minusMonths(1)
+                                    selectedPendingIds = emptySet()
+                                    selectedTodoIds = emptySet()
+                                },
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous billing period")
+                            }
+                            Text(
+                                selectedMonth.format(DateTimeFormatter.ofPattern("MMM yyyy", PhilippinesLocale)),
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                            IconButton(
+                                onClick = {
+                                    selectedMonth = selectedMonth.plusMonths(1)
+                                    selectedPendingIds = emptySet()
+                                    selectedTodoIds = emptySet()
+                                },
+                                modifier = Modifier.size(36.dp),
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next billing period")
+                            }
                         }
                     }
                 }
@@ -305,28 +329,11 @@ private fun PawBudgetApp(store: TrackerStore) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center,
                     ) {
-                        IconButton(onClick = {
-                            selectedMonth = selectedMonth.minusMonths(1)
-                            selectedPendingIds = emptySet()
-                            selectedTodoIds = emptySet()
-                        }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous billing period")
-                        }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(190.dp)) {
-                            Text(selectedMonth.format(MonthFormat), fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "${cycleStartDate(selectedMonth, data.cycleStartDay).format(DateFormat)} – ${periodEnd(selectedMonth, data.cycleStartDay).format(DateFormat)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = Color.Gray,
-                            )
-                        }
-                        IconButton(onClick = {
-                            selectedMonth = selectedMonth.plusMonths(1)
-                            selectedPendingIds = emptySet()
-                            selectedTodoIds = emptySet()
-                        }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next billing period")
-                        }
+                        Text(
+                            "${cycleStartDate(selectedMonth, data.cycleStartDay).format(DateFormat)} – ${periodEnd(selectedMonth, data.cycleStartDay).format(DateFormat)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray,
+                        )
                     }
                 }
             }
@@ -378,6 +385,8 @@ private fun PawBudgetApp(store: TrackerStore) {
                 data, periodTransactions, selectedMonth,
                 onEditBudgetExclusions = { budgetAccountDialog = true },
                 onEditTotalUsedExclusions = { totalUsedAccountDialog = true },
+                onPaidTotals = { accountTotalsPaymentType = "paid" },
+                onCreditTotals = { accountTotalsPaymentType = "credit" },
                 onCategory = { category -> filter = TransactionFilter(category) { it.category == category }; page = Page.Transactions },
                 onAccount = { account -> filter = TransactionFilter(account) { it.account == account }; page = Page.Transactions },
                 modifier = Modifier.padding(padding),
@@ -386,46 +395,52 @@ private fun PawBudgetApp(store: TrackerStore) {
                 periodTransactions, filter,
                 onClearFilter = { filter = null },
                 onEdit = { editedTransaction = it; transactionDialog = true },
-                onDelete = { item ->
-                    confirmation = "Delete \"${item.description}\"?" to {
-                        persist(data.copy(transactions = data.transactions.filterNot { it.id == item.id }))
-                    }
-                },
                 modifier = Modifier.padding(padding),
             )
             Page.Pending -> PendingPage(
-                periodTransactions,
+                statementPeriodTransactions,
                 selectedPendingIds,
-                remainingBudget = budgetRemaining(
-                    data.budgets.filter { it.periodStart == periodStartLabel(selectedMonth, data.cycleStartDay) }.sumOf { it.amount },
-                    periodTransactions,
-                    data.excludedBudgetAccounts.toSet(),
-                ),
-                onSelect = { id, selected -> selectedPendingIds = if (selected) selectedPendingIds + id else selectedPendingIds - id },
+                onSelect = { id, selected ->
+                    if (!selected) {
+                        selectedPendingIds = selectedPendingIds - id
+                    } else {
+                        val isPaid = statementPeriodTransactions.firstOrNull { it.id == id }?.isPaid
+                        val conflictingIds = statementPeriodTransactions
+                            .filter { it.paymentType == "credit" && it.isPaid != isPaid }
+                            .map { it.id }
+                            .toSet()
+                        selectedPendingIds = (selectedPendingIds - conflictingIds) + id
+                    }
+                },
                 onClearSelection = { selectedPendingIds = emptySet() },
-                onSetPaid = { id, paid ->
-                    persist(data.copy(transactions = data.transactions.map {
-                        if (it.id == id && it.paymentType == "credit") it.copy(isPaid = paid) else it
-                    }))
+                onEdit = {
+                    selectedPendingIds = emptySet()
+                    editedTransaction = it
+                    transactionDialog = true
                 },
                 onSetSelectedPaid = {
-                    val chosen = periodTransactions.filter { it.id in selectedPendingIds && it.paymentType == "credit" }
-                    val markPaid = !chosen.all { it.isPaid }
+                    val chosen = statementPeriodTransactions.filter { it.id in selectedPendingIds && it.paymentType == "credit" }
+                    val markPaid = chosen.firstOrNull()?.isPaid == false
                     val ids = chosen.map { it.id }.toSet()
                     if (ids.isNotEmpty() && persist(data.copy(transactions = data.transactions.map {
                             if (it.id in ids) it.copy(isPaid = markPaid) else it
-                        }))) selectedPendingIds = emptySet()
+                    }))) selectedPendingIds = emptySet()
+                },
+                onMoveSelectedToNextPeriod = {
+                    val targetPeriod = periodStartLabel(selectedMonth.plusMonths(1), data.cycleStartDay)
+                    val ids = statementPeriodTransactions
+                        .filter { it.id in selectedPendingIds && it.paymentType == "credit" && !it.isPaid }
+                        .map { it.id }
+                        .toSet()
+                    if (ids.isNotEmpty() && persist(data.copy(transactions = data.transactions.map {
+                            if (it.id in ids) it.copy(billingPeriodStart = targetPeriod) else it
+                    }))) selectedPendingIds = emptySet()
                 },
                 modifier = Modifier.padding(padding),
             )
             Page.Budgets -> BudgetsPage(
                 data.budgets.filter { it.periodStart == periodStartLabel(selectedMonth, data.cycleStartDay) },
                 onEdit = { editedBudget = it; budgetDialog = true },
-                onDelete = { budget ->
-                    confirmation = "Delete the budget from ${budget.person}?" to {
-                        persist(data.copy(budgets = data.budgets.filterNot { it.id == budget.id }))
-                    }
-                },
                 modifier = Modifier.padding(padding),
             )
             Page.Todo -> TodoPage(
@@ -448,8 +463,11 @@ private fun PawBudgetApp(store: TrackerStore) {
                             if (it.id in ids) it.copy(completed = completed) else it
                         }))) selectedTodoIds = emptySet()
                 },
-                onEdit = { editedTodo = it; todoDialog = true },
-                onDelete = { todo -> persist(data.copy(todos = data.todos.filterNot { it.id == todo.id })) },
+                onEdit = {
+                    selectedTodoIds = emptySet()
+                    editedTodo = it
+                    todoDialog = true
+                },
                 modifier = Modifier.padding(padding),
             )
             Page.Settings -> SettingsPage(
@@ -547,11 +565,34 @@ private fun PawBudgetApp(store: TrackerStore) {
                     paymentType = paymentType,
                     isPaid = paymentType == "paid" || (existing?.paymentType == "credit" && existing.isPaid),
                     createdAt = existing?.createdAt ?: System.currentTimeMillis(),
+                    billingPeriodStart = existing?.billingPeriodStart,
                 )
                 val transactions = if (existing == null) data.transactions + transaction else
                     data.transactions.map { if (it.id == existing.id) transaction else it }
                 if (persist(data.copy(transactions = transactions))) transactionDialog = false
             },
+            onDelete = editedTransaction?.let { item ->
+                {
+                    confirmation = "Delete \"${item.description}\"?" to {
+                        if (persist(data.copy(transactions = data.transactions.filterNot { it.id == item.id }))) {
+                            transactionDialog = false
+                        }
+                    }
+                }
+            },
+        )
+    }
+    accountTotalsPaymentType?.let { paymentType ->
+        val accountTotals = periodTransactions
+            .filter { it.paymentType == paymentType }
+            .groupBy { it.account }
+            .mapValues { (_, rows) -> rows.sumOf { it.amount } }
+            .toList()
+            .sortedBy { it.first.lowercase(Locale.ROOT) }
+        AccountTotalsDialog(
+            title = if (paymentType == "credit") "Credit used by account" else "Paid directly by account",
+            totals = accountTotals,
+            onDismiss = { accountTotalsPaymentType = null },
         )
     }
     if (totalUsedAccountDialog) {
@@ -573,6 +614,15 @@ private fun PawBudgetApp(store: TrackerStore) {
             initial = editedBudget,
             defaultPeriod = periodStartLabel(selectedMonth, data.cycleStartDay),
             onDismiss = { budgetDialog = false },
+            onDelete = editedBudget?.let { item ->
+                {
+                    confirmation = "Delete the budget from ${item.person}?" to {
+                        if (persist(data.copy(budgets = data.budgets.filterNot { it.id == item.id }))) {
+                            budgetDialog = false
+                        }
+                    }
+                }
+            },
             onSave = { person, amount ->
                 val existing = editedBudget
                 val budget = Budget(existing?.id ?: UUID.randomUUID().toString(), existing?.periodStart ?: periodStartLabel(selectedMonth, data.cycleStartDay), person.trim(), amount)
@@ -599,6 +649,15 @@ private fun PawBudgetApp(store: TrackerStore) {
         TodoEditor(
             initial = editedTodo,
             onDismiss = { todoDialog = false },
+            onDelete = editedTodo?.let { item ->
+                {
+                    confirmation = "Delete \"${item.title}\"?" to {
+                        if (persist(data.copy(todos = data.todos.filterNot { it.id == item.id }))) {
+                            todoDialog = false
+                        }
+                    }
+                }
+            },
             onSave = { title, amount ->
                 val existing = editedTodo
                 val todo = PeriodTodo(
@@ -661,6 +720,8 @@ private fun OverviewPage(
     month: YearMonth,
     onEditBudgetExclusions: () -> Unit,
     onEditTotalUsedExclusions: () -> Unit,
+    onPaidTotals: () -> Unit,
+    onCreditTotals: () -> Unit,
     onCategory: (String) -> Unit,
     onAccount: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -717,6 +778,7 @@ private fun OverviewPage(
                         "Debit, cash, and paid purchases",
                         Color(0xFFFFFEFA),
                         Modifier.weight(1f),
+                        onClick = onPaidTotals,
                     )
                     SummaryCard(
                         "Credit used",
@@ -724,6 +786,7 @@ private fun OverviewPage(
                         "Charged to your credit accounts",
                         Sage,
                         Modifier.weight(1f),
+                        onClick = onCreditTotals,
                     )
                 }
             }
@@ -786,12 +849,7 @@ private fun OverviewPage(
 }
 
 private fun transactionsForYearPeriod(transactions: List<Transaction>, month: YearMonth, day: Int): List<Transaction> {
-    val start = cycleStartDate(month, day)
-    val end = periodEnd(month, day)
-    return transactions.filter {
-        val date = runCatching { LocalDate.parse(it.date) }.getOrNull()
-        date != null && date >= start && date <= end
-    }
+    return transactionsForPeriod(transactions, month, day)
 }
 
 @Composable
@@ -803,9 +861,10 @@ private fun SummaryCard(
     modifier: Modifier = Modifier,
     onEdit: (() -> Unit)? = null,
     editDescription: String = "Edit excluded budget accounts",
+    onClick: (() -> Unit)? = null,
 ) {
     Card(
-        modifier.fillMaxWidth().height(124.dp),
+        modifier.fillMaxWidth().height(124.dp).then(if (onClick == null) Modifier else Modifier.clickable(onClick = onClick)),
         colors = CardDefaults.cardColors(containerColor = background, contentColor = if (background == Ink || background == Forest) Color.White else Ink),
     ) {
         Column(Modifier.padding(12.dp)) {
@@ -821,6 +880,36 @@ private fun SummaryCard(
             Text(caption, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp), color = if (background == Ink || background == Forest) Color.White.copy(alpha = 0.78f) else Color.Gray, maxLines = 2)
         }
     }
+}
+
+@Composable
+private fun AccountTotalsDialog(
+    title: String,
+    totals: List<Pair<String, Double>>,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            if (totals.isEmpty()) {
+                Text("No matching transactions for this billing period.", color = Color.Gray)
+            } else {
+                Column(
+                    Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    totals.forEach { (account, amount) ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(account, modifier = Modifier.weight(1f))
+                            Text(money(amount), fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+    )
 }
 
 @Composable
@@ -923,7 +1012,6 @@ private fun TransactionsPage(
     filter: TransactionFilter?,
     onClearFilter: () -> Unit,
     onEdit: (Transaction) -> Unit,
-    onDelete: (Transaction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val visible = if (filter == null) transactions else transactions.filter(filter.matches)
@@ -943,14 +1031,14 @@ private fun TransactionsPage(
         }
         if (visible.isEmpty()) item { EmptyMessage(if (filter == null) "No transactions in this billing period." else "No matching transactions.") }
         items(visible, key = { it.id }) { transaction ->
-            TransactionCard(transaction, onEdit, onDelete)
+            TransactionCard(transaction) { onEdit(transaction) }
         }
     }
 }
 
 @Composable
-private fun TransactionCard(transaction: Transaction, onEdit: (Transaction) -> Unit, onDelete: (Transaction) -> Unit) {
-    CardBlock {
+private fun TransactionCard(transaction: Transaction, onClick: () -> Unit) {
+    CardBlock(modifier = Modifier.clickable(onClick = onClick)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(transaction.description, fontWeight = FontWeight.SemiBold)
@@ -962,17 +1050,7 @@ private fun TransactionCard(transaction: Transaction, onEdit: (Transaction) -> U
                 )
             }
             Spacer(Modifier.width(8.dp))
-            Column(horizontalAlignment = Alignment.End) {
-                Text(money(transaction.amount), fontWeight = FontWeight.SemiBold)
-                Row {
-                    IconButton(onClick = { onEdit(transaction) }, modifier = Modifier.size(38.dp)) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit ${transaction.description}", modifier = Modifier.size(18.dp))
-                    }
-                    IconButton(onClick = { onDelete(transaction) }, modifier = Modifier.size(38.dp)) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete ${transaction.description}", tint = Color(0xFF9D5145), modifier = Modifier.size(18.dp))
-                    }
-                }
-            }
+            Text(money(transaction.amount), fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -981,11 +1059,11 @@ private fun TransactionCard(transaction: Transaction, onEdit: (Transaction) -> U
 private fun PendingPage(
     transactions: List<Transaction>,
     selectedIds: Set<String>,
-    remainingBudget: Double,
     onSelect: (String, Boolean) -> Unit,
     onClearSelection: () -> Unit,
-    onSetPaid: (String, Boolean) -> Unit,
+    onEdit: (Transaction) -> Unit,
     onSetSelectedPaid: () -> Unit,
+    onMoveSelectedToNextPeriod: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val unpaid = transactions.filter { it.paymentType == "credit" && !it.isPaid }
@@ -1002,6 +1080,7 @@ private fun PendingPage(
         }
         if (chosen.isNotEmpty()) {
             item {
+                val selectionIsPaid = chosen.first().isPaid
                 CardBlock {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
@@ -1011,34 +1090,39 @@ private fun PendingPage(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.Gray,
                             )
-                            Text(
-                                "Budget after selected payments · ${money(budgetAfterSelectedPayments(remainingBudget, chosen))}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Forest,
-                            )
                         }
                         TextButton(onClick = onClearSelection) { Text("Deselect All") }
                     }
                     Button(onClick = onSetSelectedPaid, modifier = Modifier.padding(top = 8.dp)) {
-                        Text(if (chosen.all { it.isPaid }) "Mark selected unpaid" else "Mark selected paid")
+                        Text(if (selectionIsPaid) "Mark selected unpaid" else "Mark selected paid")
+                    }
+                    if (!selectionIsPaid) {
+                        OutlinedButton(onClick = onMoveSelectedToNextPeriod, modifier = Modifier.fillMaxWidth()) {
+                            Text("Move selected to next billing period")
+                        }
                     }
                 }
             }
         }
         if (unpaid.isEmpty()) item { EmptyMessage("No pending credit payments for this billing period.") }
         items(unpaid, key = { "unpaid-${it.id}" }) { item ->
-            CreditPaymentCard(item, selectedIds.contains(item.id), { onSelect(item.id, it) }, { onSetPaid(item.id, true) })
+            CreditPaymentCard(item, selectedIds.contains(item.id), { onSelect(item.id, it) }) { onEdit(item) }
         }
         if (paid.isNotEmpty()) item { SectionTitle("Paid credit transactions") }
         items(paid, key = { "paid-${it.id}" }) { item ->
-            CreditPaymentCard(item, selectedIds.contains(item.id), { onSelect(item.id, it) }, { onSetPaid(item.id, false) })
+            CreditPaymentCard(item, selectedIds.contains(item.id), { onSelect(item.id, it) }) { onEdit(item) }
         }
     }
 }
 
 @Composable
-private fun CreditPaymentCard(item: Transaction, selected: Boolean, onSelect: (Boolean) -> Unit, onTogglePaid: () -> Unit) {
-    CardBlock(background = if (item.isPaid) Color(0xFFF0EEE7) else Color(0xFFFFFEFA), contentPadding = 10.dp, spacing = 2.dp) {
+private fun CreditPaymentCard(item: Transaction, selected: Boolean, onSelect: (Boolean) -> Unit, onClick: () -> Unit) {
+    CardBlock(
+        background = if (item.isPaid) Color(0xFFF0EEE7) else Color(0xFFFFFEFA),
+        contentPadding = 10.dp,
+        spacing = 2.dp,
+        modifier = Modifier.clickable(onClick = onClick),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = selected, onCheckedChange = onSelect)
             Column(
@@ -1065,13 +1149,7 @@ private fun CreditPaymentCard(item: Transaction, selected: Boolean, onSelect: (B
                     maxLines = 1,
                 )
             }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(money(item.amount), fontWeight = FontWeight.SemiBold, maxLines = 1)
-                TextButton(
-                    onClick = onTogglePaid,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 0.dp, vertical = 0.dp),
-                ) { Text(if (item.isPaid) "Mark unpaid" else "Mark paid", style = MaterialTheme.typography.labelMedium) }
-            }
+            Text(money(item.amount), fontWeight = FontWeight.SemiBold, maxLines = 1)
         }
     }
 }
@@ -1080,7 +1158,6 @@ private fun CreditPaymentCard(item: Transaction, selected: Boolean, onSelect: (B
 private fun BudgetsPage(
     budgets: List<Budget>,
     onEdit: (Budget) -> Unit,
-    onDelete: (Budget) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -1098,7 +1175,7 @@ private fun BudgetsPage(
         }
         if (budgets.isEmpty()) item { EmptyMessage("No budgets for this billing period yet.") }
         items(budgets, key = { it.id }) { budget ->
-            CardBlock {
+            CardBlock(modifier = Modifier.clickable { onEdit(budget) }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(budget.person, fontWeight = FontWeight.SemiBold)
@@ -1106,14 +1183,6 @@ private fun BudgetsPage(
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(money(budget.amount), fontWeight = FontWeight.SemiBold)
-                        Row {
-                            IconButton(onClick = { onEdit(budget) }, modifier = Modifier.size(38.dp)) {
-                                Icon(Icons.Default.Edit, "Edit budget", modifier = Modifier.size(18.dp))
-                            }
-                            IconButton(onClick = { onDelete(budget) }, modifier = Modifier.size(38.dp)) {
-                                Icon(Icons.Default.Delete, "Delete budget", tint = Color(0xFF9D5145), modifier = Modifier.size(18.dp))
-                            }
-                        }
                     }
                 }
             }
@@ -1130,7 +1199,6 @@ private fun TodoPage(
     onClearSelection: () -> Unit,
     onSetSelectedCompleted: () -> Unit,
     onEdit: (PeriodTodo) -> Unit,
-    onDelete: (PeriodTodo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyColumn(
@@ -1170,7 +1238,12 @@ private fun TodoPage(
         }
         if (todos.isEmpty()) item { EmptyMessage("No tasks for this billing period yet. Add one to get started.") }
         items(todos.sortedBy { it.completed }, key = { it.id }) { todo ->
-            CardBlock(background = if (todo.completed) Color(0xFFF0EEE7) else Color(0xFFFFFEFA), contentPadding = 10.dp, spacing = 2.dp) {
+            CardBlock(
+                background = if (todo.completed) Color(0xFFF0EEE7) else Color(0xFFFFFEFA),
+                contentPadding = 10.dp,
+                spacing = 2.dp,
+                modifier = Modifier.clickable { onEdit(todo) },
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(checked = todo.id in selectedIds, onCheckedChange = { onSelect(todo.id, it) })
                     Text(
@@ -1181,8 +1254,6 @@ private fun TodoPage(
                         modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     )
                     todo.amount?.let { Text(money(it), style = MaterialTheme.typography.bodySmall, color = Color.Gray, maxLines = 1) }
-                    IconButton(onClick = { onEdit(todo) }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Edit, "Edit task", modifier = Modifier.size(18.dp)) }
-                    IconButton(onClick = { onDelete(todo) }, modifier = Modifier.size(36.dp)) { Icon(Icons.Default.Delete, "Delete task", tint = Color(0xFF9D5145), modifier = Modifier.size(18.dp)) }
                 }
             }
         }
@@ -1355,6 +1426,7 @@ private fun TransactionEditor(
     defaultDate: String,
     onDismiss: () -> Unit,
     onSave: (String, String, Double, String, String, String) -> Unit,
+    onDelete: (() -> Unit)?,
 ) {
     var description by remember(initial) { mutableStateOf(initial?.description.orEmpty()) }
     var date by remember(initial) { mutableStateOf(initial?.date ?: defaultDate) }
@@ -1414,17 +1486,23 @@ private fun TransactionEditor(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                val amount = amountText.toDoubleOrNull()
-                val validDate = runCatching { LocalDate.parse(date) }.isSuccess
-                if (description.isBlank() || !validDate || amount == null || !amount.isFinite() || amount <= 0 || category.isBlank() || account.isBlank()) {
-                    error = "Enter a valid date, description, category, account, and amount greater than zero."
-                } else {
-                    onSave(date, description, amount, category, account, paymentType)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete) { Text("Delete", color = Color(0xFF9D5145)) }
                 }
-            }) { Text("Save") }
+                TextButton(onClick = {
+                    val amount = amountText.toDoubleOrNull()
+                    val validDate = runCatching { LocalDate.parse(date) }.isSuccess
+                    if (description.isBlank() || !validDate || amount == null || !amount.isFinite() || amount <= 0 || category.isBlank() || account.isBlank()) {
+                        error = "Enter a valid date, description, category, account, and amount greater than zero."
+                    } else {
+                        onSave(date, description, amount, category, account, paymentType)
+                    }
+                }) { Text("Save") }
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {},
     )
     if (showDatePicker) {
         val initialDate = runCatching { LocalDate.parse(date) }.getOrDefault(LocalDate.now())
@@ -1449,7 +1527,13 @@ private fun TransactionEditor(
 }
 
 @Composable
-private fun BudgetEditor(initial: Budget?, defaultPeriod: String, onDismiss: () -> Unit, onSave: (String, Double) -> Unit) {
+private fun BudgetEditor(
+    initial: Budget?,
+    defaultPeriod: String,
+    onDismiss: () -> Unit,
+    onDelete: (() -> Unit)?,
+    onSave: (String, Double) -> Unit,
+) {
     var person by remember(initial) { mutableStateOf(initial?.person.orEmpty()) }
     var amountText by remember(initial) { mutableStateOf(initial?.amount?.toString().orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -1465,18 +1549,29 @@ private fun BudgetEditor(initial: Budget?, defaultPeriod: String, onDismiss: () 
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                val amount = amountText.toDoubleOrNull()
-                if (person.isBlank() || amount == null || !amount.isFinite() || amount <= 0) error = "Enter a name and a budget amount greater than zero."
-                else onSave(person, amount)
-            }) { Text("Save") }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete) { Text("Delete", color = Color(0xFF9D5145)) }
+                }
+                TextButton(onClick = {
+                    val amount = amountText.toDoubleOrNull()
+                    if (person.isBlank() || amount == null || !amount.isFinite() || amount <= 0) error = "Enter a name and a budget amount greater than zero."
+                    else onSave(person, amount)
+                }) { Text("Save") }
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {},
     )
 }
 
 @Composable
-private fun TodoEditor(initial: PeriodTodo?, onDismiss: () -> Unit, onSave: (String, Double?) -> Unit) {
+private fun TodoEditor(
+    initial: PeriodTodo?,
+    onDismiss: () -> Unit,
+    onDelete: (() -> Unit)?,
+    onSave: (String, Double?) -> Unit,
+) {
     var title by remember(initial) { mutableStateOf(initial?.title.orEmpty()) }
     var amountText by remember(initial) { mutableStateOf(initial?.amount?.toString().orEmpty()) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -1497,18 +1592,24 @@ private fun TodoEditor(initial: PeriodTodo?, onDismiss: () -> Unit, onSave: (Str
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                val amount = amountText.toDoubleOrNull()
-                if (title.isBlank()) {
-                    error = "A task cannot have an empty title."
-                } else if (amountText.isNotBlank() && (amount == null || !amount.isFinite() || amount <= 0)) {
-                    error = "Enter an amount greater than zero, or leave it blank."
-                } else {
-                    onSave(title, amount)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onDismiss) { Text("Cancel") }
+                if (onDelete != null) {
+                    TextButton(onClick = onDelete) { Text("Delete", color = Color(0xFF9D5145)) }
                 }
-            }) { Text("Save") }
+                TextButton(onClick = {
+                    val amount = amountText.toDoubleOrNull()
+                    if (title.isBlank()) {
+                        error = "A task cannot have an empty title."
+                    } else if (amountText.isNotBlank() && (amount == null || !amount.isFinite() || amount <= 0)) {
+                        error = "Enter an amount greater than zero, or leave it blank."
+                    } else {
+                        onSave(title, amount)
+                    }
+                }) { Text("Save") }
+            }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = {},
     )
 }
 
@@ -1542,10 +1643,11 @@ private fun CardBlock(
     background: Color = Color(0xFFFFFEFA),
     contentPadding: androidx.compose.ui.unit.Dp = 14.dp,
     spacing: androidx.compose.ui.unit.Dp = 6.dp,
+    modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = background),
         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
