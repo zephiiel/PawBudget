@@ -40,8 +40,7 @@ data class TrackerData(
     val transactions: List<Transaction> = emptyList(),
     val budgets: List<Budget> = emptyList(),
     val todos: List<PeriodTodo> = emptyList(),
-    val excludedBudgetAccounts: List<String> = emptyList(),
-    val excludedTotalUsedAccounts: List<String> = emptyList(),
+    val excludedAccounts: List<String> = emptyList(),
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("cycleStartDay", cycleStartDay)
@@ -84,8 +83,9 @@ data class TrackerData(
                 })
             }
         })
-        put("excludedBudgetAccounts", JSONArray(excludedBudgetAccounts))
-        put("excludedTotalUsedAccounts", JSONArray(excludedTotalUsedAccounts))
+        put("excludedAccounts", JSONArray(excludedAccounts))
+        put("excludedBudgetAccounts", JSONArray(excludedAccounts))
+        put("excludedTotalUsedAccounts", JSONArray(excludedAccounts))
     }
 
     companion object {
@@ -118,8 +118,11 @@ data class TrackerData(
             require(day in 1..31) { "The billing-cycle start day must be from 1 to 31." }
             val categories = data.requiredStringArray("categories")
             val accounts = data.requiredStringArray("accounts")
-            val excludedBudgetAccounts = data.optStringArray("excludedBudgetAccounts")
-            val excludedTotalUsedAccounts = data.optStringArray("excludedTotalUsedAccounts")
+            val excludedAccounts = (
+                data.optStringArray("excludedAccounts") +
+                    data.optStringArray("excludedBudgetAccounts") +
+                    data.optStringArray("excludedTotalUsedAccounts")
+                ).distinct().sorted()
             val transactionArray = data.requiredArray("transactions")
             val transactions = List(transactionArray.length()) { index ->
                 val item = transactionArray.optJSONObject(index) ?: invalidBackup()
@@ -164,7 +167,15 @@ data class TrackerData(
                 }
                 PeriodTodo(item.getString("id"), title, item.optBoolean("completed"), period, amount)
             }
-            return TrackerData(day, categories, accounts, transactions, budgets, todos, excludedBudgetAccounts, excludedTotalUsedAccounts)
+            return TrackerData(
+                cycleStartDay = day,
+                categories = categories,
+                accounts = accounts,
+                transactions = transactions,
+                budgets = budgets,
+                todos = todos,
+                excludedAccounts = excludedAccounts,
+            )
         }
 
         private fun JSONObject.requiredStringArray(key: String): List<String> {
@@ -237,6 +248,11 @@ fun transactionsForStatementPeriod(
     val periodStart = periodStartLabel(month, cycleStartDay)
     return transactions.filter { transactionStatementPeriodStart(it, cycleStartDay) == periodStart }
 }
+
+fun transactionsExcludingAccounts(
+    transactions: List<Transaction>,
+    excludedAccounts: Set<String>,
+): List<Transaction> = transactions.filterNot { it.account in excludedAccounts }
 
 fun budgetAfterSelectedTodos(remainingBudget: Double, selectedTodos: List<PeriodTodo>): Double =
     remainingBudget - selectedTodos.sumOf { it.amount ?: 0.0 }

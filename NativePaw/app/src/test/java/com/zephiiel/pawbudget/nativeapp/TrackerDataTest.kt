@@ -51,7 +51,7 @@ class TrackerDataTest {
         val data = TrackerData.fromBackup(backup)
 
         assertEquals(15, data.cycleStartDay)
-        assertEquals(emptyList<String>(), data.excludedBudgetAccounts)
+        assertEquals(emptyList<String>(), data.excludedAccounts)
         assertEquals(false, data.transactions.single().isPaid)
         assertEquals(125.5, data.transactions.single().amount, 0.0)
         assertEquals("Alex", data.budgets.single().person)
@@ -180,30 +180,46 @@ class TrackerDataTest {
     }
 
     @Test
-    fun excludedBudgetAccountsPersistAndDoNotReduceRemainingBudget() {
+    fun legacyAccountExclusionsAreCombinedAndPersistedAsOneSharedSetting() {
         val transaction = Transaction("txn-1", "2026-10-17", "Purchase", "Other", 125.0, "Cash", "paid", true)
         val data = TrackerData(
             accounts = listOf("Cash", "Card"),
             transactions = listOf(transaction),
-            excludedBudgetAccounts = listOf("Cash"),
-            excludedTotalUsedAccounts = listOf("Card"),
+            excludedAccounts = listOf("Card", "Cash"),
         )
 
         assertEquals(data, TrackerData.fromBackup(data.toJson()))
-        assertEquals(500.0, budgetRemaining(500.0, listOf(transaction), data.excludedBudgetAccounts.toSet()), 0.0)
-        assertEquals(125.0, totalUsed(listOf(transaction), data.excludedTotalUsedAccounts.toSet()), 0.0)
-        assertEquals(0.0, totalUsed(listOf(transaction), data.excludedBudgetAccounts.toSet()), 0.0)
+        assertEquals(500.0, budgetRemaining(500.0, listOf(transaction), data.excludedAccounts.toSet()), 0.0)
+        assertEquals(0.0, totalUsed(listOf(transaction), data.excludedAccounts.toSet()), 0.0)
+        assertTrue(transactionsExcludingAccounts(listOf(transaction), data.excludedAccounts.toSet()).isEmpty())
     }
 
     @Test
-    fun totalUsedCanExcludeAccountsIndependentlyOfBudgetExclusions() {
-        val transactions = listOf(
-            Transaction("cash", "2026-10-17", "Cash", "Other", 100.0, "Cash", "paid", true),
-            Transaction("card", "2026-10-17", "Card", "Other", 200.0, "Card", "credit", false),
+    fun legacyBudgetAndTotalUsedExclusionsMigrateAsTheirUnion() {
+        val legacyBackup = JSONObject(
+            """
+            {
+              "categories": [],
+              "accounts": ["Cash", "Card"],
+              "transactions": [],
+              "excludedBudgetAccounts": ["Cash"],
+              "excludedTotalUsedAccounts": ["Card"]
+            }
+            """.trimIndent(),
         )
 
-        assertEquals(200.0, totalUsed(transactions, setOf("Cash")), 0.0)
-        assertEquals(100.0, totalUsed(transactions, setOf("Card")), 0.0)
+        val data = TrackerData.fromBackup(legacyBackup)
+        assertEquals(listOf("Card", "Cash"), data.excludedAccounts)
+        val serialized = data.toJson()
+        assertEquals(listOf("Card", "Cash"), serialized.getJSONArray("excludedAccounts").let { array ->
+            List(array.length()) { index -> array.getString(index) }
+        })
+        assertEquals(listOf("Card", "Cash"), serialized.getJSONArray("excludedBudgetAccounts").let { array ->
+            List(array.length()) { index -> array.getString(index) }
+        })
+        assertEquals(listOf("Card", "Cash"), serialized.getJSONArray("excludedTotalUsedAccounts").let { array ->
+            List(array.length()) { index -> array.getString(index) }
+        })
     }
 
     @Test(expected = IllegalArgumentException::class)

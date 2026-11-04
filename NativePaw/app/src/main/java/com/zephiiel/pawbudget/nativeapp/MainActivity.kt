@@ -10,7 +10,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
@@ -84,8 +83,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.input.KeyboardType
@@ -94,8 +91,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import org.json.JSONObject
+import java.io.File
 import java.text.NumberFormat
 import java.time.LocalDate
 import java.time.YearMonth
@@ -129,6 +128,13 @@ private enum class Page(val label: String, val symbol: String) {
 }
 
 private data class TransactionFilter(val label: String, val matches: (Transaction) -> Boolean)
+
+private fun backupContents(data: TrackerData): String = JSONObject()
+    .put("format", "ledger-monthly-tracker")
+    .put("version", 1)
+    .put("exportedAt", java.time.Instant.now().toString())
+    .put("data", data.toJson())
+    .toString(2)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -179,7 +185,6 @@ private fun PawBudgetApp(store: TrackerStore) {
     var budgetDialog by remember { mutableStateOf(false) }
     var editedBudget by remember { mutableStateOf<Budget?>(null) }
     var budgetAccountDialog by remember { mutableStateOf(false) }
-    var totalUsedAccountDialog by remember { mutableStateOf(false) }
     var accountTotalsPaymentType by remember { mutableStateOf<String?>(null) }
     var todoDialog by remember { mutableStateOf(false) }
     var editedTodo by remember { mutableStateOf<PeriodTodo?>(null) }
@@ -223,22 +228,40 @@ private fun PawBudgetApp(store: TrackerStore) {
     }
 
     val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json"),
+        ActivityResultContracts.CreateDocument("application/octet-stream"),
     ) { uri: Uri? ->
         if (uri == null) {
             status = "Backup export cancelled."
         } else {
             runCatching {
-                val backup = JSONObject()
-                    .put("format", "ledger-monthly-tracker")
-                    .put("version", 1)
-                    .put("exportedAt", java.time.Instant.now().toString())
-                    .put("data", data.toJson())
-                context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(backup.toString(2)) }
+                context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { it.write(backupContents(data)) }
                     ?: error("Android could not open the selected file.")
             }.onSuccess { status = "Backup saved to the selected location." }
                 .onFailure { status = "Could not export backup: ${it.message}" }
         }
+    }
+    fun shareBackup() {
+        runCatching {
+            val backupDirectory = File(context.cacheDir, "backups")
+            if (!backupDirectory.exists() && !backupDirectory.mkdirs()) {
+                error("Could not create a temporary backup file.")
+            }
+            val backupFile = File(backupDirectory, "pawbudget-backup-${LocalDate.now()}.pawbudget")
+            backupFile.writeText(backupContents(data))
+            val backupUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                backupFile,
+            )
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "application/octet-stream"
+                putExtra(Intent.EXTRA_STREAM, backupUri)
+                putExtra(Intent.EXTRA_SUBJECT, "PawBudget backup")
+                putExtra(Intent.EXTRA_TITLE, "PawBudget backup")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Share PawBudget backup"))
+        }.onFailure { status = "Could not share backup: ${it.message}" }
     }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
@@ -262,6 +285,9 @@ private fun PawBudgetApp(store: TrackerStore) {
     val statementPeriodTransactions = remember(data.transactions, selectedMonth, data.cycleStartDay) {
         transactionsForStatementPeriod(data.transactions, selectedMonth, data.cycleStartDay)
             .sortedWith(compareByDescending<Transaction> { it.date }.thenByDescending { it.createdAt })
+    }
+    val visiblePeriodTransactions = remember(periodTransactions, data.excludedAccounts) {
+        transactionsExcludingAccounts(periodTransactions, data.excludedAccounts.toSet())
     }
 
     Scaffold(
@@ -293,47 +319,42 @@ private fun PawBudgetApp(store: TrackerStore) {
                         }
                     }
                     if (page != Page.Settings) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(
-                                onClick = {
-                                    selectedMonth = selectedMonth.minusMonths(1)
-                                    selectedPendingIds = emptySet()
-                                    selectedTodoIds = emptySet()
-                                },
-                                modifier = Modifier.size(36.dp),
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous billing period")
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(
+                                    onClick = {
+                                        selectedMonth = selectedMonth.minusMonths(1)
+                                        selectedPendingIds = emptySet()
+                                        selectedTodoIds = emptySet()
+                                    },
+                                    modifier = Modifier.size(36.dp),
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous billing period")
+                                }
+                                Text(
+                                    selectedMonth.format(DateTimeFormatter.ofPattern("MMM yyyy", PhilippinesLocale)),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                )
+                                IconButton(
+                                    onClick = {
+                                        selectedMonth = selectedMonth.plusMonths(1)
+                                        selectedPendingIds = emptySet()
+                                        selectedTodoIds = emptySet()
+                                    },
+                                    modifier = Modifier.size(36.dp),
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next billing period")
+                                }
                             }
                             Text(
-                                selectedMonth.format(DateTimeFormatter.ofPattern("MMM yyyy", PhilippinesLocale)),
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
+                                "${cycleStartDate(selectedMonth, data.cycleStartDay).format(DateFormat)} – ${periodEnd(selectedMonth, data.cycleStartDay).format(DateFormat)}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color.Gray,
                                 maxLines = 1,
                             )
-                            IconButton(
-                                onClick = {
-                                    selectedMonth = selectedMonth.plusMonths(1)
-                                    selectedPendingIds = emptySet()
-                                    selectedTodoIds = emptySet()
-                                },
-                                modifier = Modifier.size(36.dp),
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next billing period")
-                            }
                         }
-                    }
-                }
-                if (page != Page.Settings) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center,
-                    ) {
-                        Text(
-                            "${cycleStartDate(selectedMonth, data.cycleStartDay).format(DateFormat)} – ${periodEnd(selectedMonth, data.cycleStartDay).format(DateFormat)}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Color.Gray,
-                        )
                     }
                 }
             }
@@ -382,9 +403,8 @@ private fun PawBudgetApp(store: TrackerStore) {
     ) { padding ->
         when (page) {
             Page.Overview -> OverviewPage(
-                data, periodTransactions, selectedMonth,
-                onEditBudgetExclusions = { budgetAccountDialog = true },
-                onEditTotalUsedExclusions = { totalUsedAccountDialog = true },
+                data, visiblePeriodTransactions, selectedMonth,
+                onEditExcludedAccounts = { budgetAccountDialog = true },
                 onPaidTotals = { accountTotalsPaymentType = "paid" },
                 onCreditTotals = { accountTotalsPaymentType = "credit" },
                 onCategory = { category -> filter = TransactionFilter(category) { it.category == category }; page = Page.Transactions },
@@ -392,7 +412,7 @@ private fun PawBudgetApp(store: TrackerStore) {
                 modifier = Modifier.padding(padding),
             )
             Page.Transactions -> TransactionsPage(
-                periodTransactions, filter,
+                visiblePeriodTransactions, filter,
                 onClearFilter = { filter = null },
                 onEdit = { editedTransaction = it; transactionDialog = true },
                 modifier = Modifier.padding(padding),
@@ -449,7 +469,7 @@ private fun PawBudgetApp(store: TrackerStore) {
                 remainingBudget = budgetRemaining(
                     data.budgets.filter { it.periodStart == periodStartLabel(selectedMonth, data.cycleStartDay) }.sumOf { it.amount },
                     periodTransactions,
-                    data.excludedBudgetAccounts.toSet(),
+                    data.excludedAccounts.toSet(),
                 ),
                 onSelect = { id, selected -> selectedTodoIds = if (selected) selectedTodoIds + id else selectedTodoIds - id },
                 onClearSelection = { selectedTodoIds = emptySet() },
@@ -487,9 +507,10 @@ private fun PawBudgetApp(store: TrackerStore) {
                 onAddAccount = { value -> addSettingOption(value, data.accounts, "account", { next -> data.copy(accounts = next) }, ::persist) },
                 onRemoveAccount = { value -> persist(data.copy(accounts = data.accounts.filterNot { it == value })) },
                 onExport = {
-                    exportLauncher.launch("pawbudget-backup-${LocalDate.now()}.json")
+                    exportLauncher.launch("pawbudget-backup-${LocalDate.now()}.pawbudget")
                 },
-                onImport = { importLauncher.launch(arrayOf("application/json", "text/json", "*/*")) },
+                onShare = ::shareBackup,
+                onImport = { importLauncher.launch(arrayOf("application/json", "text/json", "application/octet-stream", "*/*")) },
                 currentVersion = BuildConfig.VERSION_NAME,
                 updateMessage = updateMessage,
                 availableUpdate = availableUpdate,
@@ -583,7 +604,7 @@ private fun PawBudgetApp(store: TrackerStore) {
         )
     }
     accountTotalsPaymentType?.let { paymentType ->
-        val accountTotals = periodTransactions
+        val accountTotals = visiblePeriodTransactions
             .filter { it.paymentType == paymentType }
             .groupBy { it.account }
             .mapValues { (_, rows) -> rows.sumOf { it.amount } }
@@ -593,20 +614,6 @@ private fun PawBudgetApp(store: TrackerStore) {
             title = if (paymentType == "credit") "Credit used by account" else "Paid directly by account",
             totals = accountTotals,
             onDismiss = { accountTotalsPaymentType = null },
-        )
-    }
-    if (totalUsedAccountDialog) {
-        BudgetAccountExclusionDialog(
-            accounts = (data.accounts + data.transactions.map { it.account }).distinct().sorted(),
-            excludedAccounts = data.excludedTotalUsedAccounts.toSet(),
-            title = "Exclude accounts from total used",
-            description = "Choose accounts whose transactions should not count toward total used.",
-            onDismiss = { totalUsedAccountDialog = false },
-            onSave = { excludedAccounts ->
-                if (persist(data.copy(excludedTotalUsedAccounts = excludedAccounts.sorted()))) {
-                    totalUsedAccountDialog = false
-                }
-            },
         )
     }
     if (budgetDialog) {
@@ -634,12 +641,12 @@ private fun PawBudgetApp(store: TrackerStore) {
     if (budgetAccountDialog) {
         BudgetAccountExclusionDialog(
             accounts = (data.accounts + data.transactions.map { it.account }).distinct().sorted(),
-            excludedAccounts = data.excludedBudgetAccounts.toSet(),
-            title = "Exclude accounts from budget",
-            description = "Choose accounts whose transactions should not reduce your budget remaining.",
+            excludedAccounts = data.excludedAccounts.toSet(),
+            title = "Exclude accounts",
+            description = "Excluded accounts do not count toward budget remaining or total used and are hidden from overview charts and transaction history.",
             onDismiss = { budgetAccountDialog = false },
             onSave = { excludedAccounts ->
-                if (persist(data.copy(excludedBudgetAccounts = excludedAccounts.sorted()))) {
+                if (persist(data.copy(excludedAccounts = excludedAccounts.sorted()))) {
                     budgetAccountDialog = false
                 }
             },
@@ -718,21 +725,19 @@ private fun OverviewPage(
     data: TrackerData,
     transactions: List<Transaction>,
     month: YearMonth,
-    onEditBudgetExclusions: () -> Unit,
-    onEditTotalUsedExclusions: () -> Unit,
+    onEditExcludedAccounts: () -> Unit,
     onPaidTotals: () -> Unit,
     onCreditTotals: () -> Unit,
     onCategory: (String) -> Unit,
     onAccount: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val total = transactions.sumOf { it.amount }
-    val totalUsedAmount = totalUsed(transactions, data.excludedTotalUsedAccounts.toSet())
+    val totalUsedAmount = totalUsed(transactions, data.excludedAccounts.toSet())
     val paid = transactions.filter { it.paymentType == "paid" }.sumOf { it.amount }
     val credit = transactions.filter { it.paymentType == "credit" }.sumOf { it.amount }
     val budgets = data.budgets.filter { it.periodStart == periodStartLabel(month, data.cycleStartDay) }
     val budgetTotal = budgets.sumOf { it.amount }
-    val remaining = budgetRemaining(budgetTotal, transactions, data.excludedBudgetAccounts.toSet())
+    val remaining = budgetRemaining(budgetTotal, transactions, data.excludedAccounts.toSet())
     val categoryTotals = transactions.groupBy { it.category }.mapValues { (_, rows) -> rows.sumOf { it.amount } }
         .toList().sortedByDescending { it.second }
     val accountTotals = transactions.groupBy { it.account }.mapValues { (_, rows) -> rows.sumOf { it.amount } }
@@ -759,7 +764,7 @@ private fun OverviewPage(
                         "${money(budgetTotal)} total budget",
                         Forest,
                         Modifier.weight(1f),
-                        onEdit = onEditBudgetExclusions,
+                        onEdit = onEditExcludedAccounts,
                     )
                     SummaryCard(
                         "Total used",
@@ -767,8 +772,8 @@ private fun OverviewPage(
                         "Paid and credit spending",
                         Ink,
                         Modifier.weight(1f),
-                        onEdit = onEditTotalUsedExclusions,
-                        editDescription = "Edit excluded total used accounts",
+                        onEdit = onEditExcludedAccounts,
+                        editDescription = "Edit excluded accounts",
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -796,14 +801,6 @@ private fun OverviewPage(
             if (categoryTotals.isEmpty()) EmptyMessage("No spending for this billing period yet.")
             else {
                 CardBlock {
-                    Box(contentAlignment = Alignment.Center) {
-                        DonutChart(categoryTotals)
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Total", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
-                            Text(money(total), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                Spacer(Modifier.height(8.dp))
                     categoryTotals.forEachIndexed { index, (name, amount) ->
                         ChartBar(name, amount, categoryTotals.maxOf { it.second }, ChartColors[index % ChartColors.size], onClick = { onCategory(name) })
                     }
@@ -824,7 +821,12 @@ private fun OverviewPage(
             SectionTitle("Spending this year $year")
             val monthly = (1..12).map { monthNumber ->
                 val chartMonth = YearMonth.of(year, monthNumber).let { if (data.cycleStartDay == 1) it else it.minusMonths(1) }
-                transactionsForYearPeriod(data.transactions, chartMonth, data.cycleStartDay).sumOf { it.amount }
+                transactionsForYearPeriod(
+                    data.transactions,
+                    chartMonth,
+                    data.cycleStartDay,
+                    data.excludedAccounts.toSet(),
+                ).sumOf { it.amount }
             }
             CardBlock {
                 Row(Modifier.fillMaxWidth().height(126.dp), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
@@ -848,8 +850,13 @@ private fun OverviewPage(
     }
 }
 
-private fun transactionsForYearPeriod(transactions: List<Transaction>, month: YearMonth, day: Int): List<Transaction> {
-    return transactionsForPeriod(transactions, month, day)
+private fun transactionsForYearPeriod(
+    transactions: List<Transaction>,
+    month: YearMonth,
+    day: Int,
+    excludedAccounts: Set<String>,
+): List<Transaction> {
+    return transactionsExcludingAccounts(transactionsForPeriod(transactions, month, day), excludedAccounts)
 }
 
 @Composable
@@ -860,7 +867,7 @@ private fun SummaryCard(
     background: Color,
     modifier: Modifier = Modifier,
     onEdit: (() -> Unit)? = null,
-    editDescription: String = "Edit excluded budget accounts",
+    editDescription: String = "Edit excluded accounts",
     onClick: (() -> Unit)? = null,
 ) {
     Card(
@@ -935,7 +942,7 @@ private fun BudgetAccountExclusionDialog(
         title = { Text(title) },
         text = {
             if (accounts.isEmpty()) {
-                Text("Add an account or transaction first to exclude it from your budget calculation.")
+                Text("Add an account or transaction first to exclude it.")
             } else {
                 Column(
                     Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
@@ -968,29 +975,6 @@ private fun BudgetAccountExclusionDialog(
             TextButton(onClick = onDismiss) { Text("Cancel") }
         },
     )
-}
-
-@Composable
-private fun DonutChart(totals: List<Pair<String, Double>>) {
-    val sum = totals.sumOf { it.second }
-    Canvas(Modifier.fillMaxWidth().height(170.dp)) {
-        val diameter = size.height * 0.84f
-        val topLeft = androidx.compose.ui.geometry.Offset((size.width - diameter) / 2f, (size.height - diameter) / 2f)
-        var startAngle = -90f
-        totals.forEachIndexed { index, (_, amount) ->
-            val sweep = (amount / sum * 360.0).toFloat()
-            drawArc(
-                color = ChartColors[index % ChartColors.size],
-                startAngle = startAngle,
-                sweepAngle = sweep,
-                useCenter = false,
-                topLeft = topLeft,
-                size = androidx.compose.ui.geometry.Size(diameter, diameter),
-                style = Stroke(width = 22.dp.toPx(), cap = StrokeCap.Butt),
-            )
-            startAngle += sweep
-        }
-    }
 }
 
 @Composable
@@ -1270,6 +1254,7 @@ private fun SettingsPage(
     onAddAccount: (String) -> Unit,
     onRemoveAccount: (String) -> Unit,
     onExport: () -> Unit,
+    onShare: () -> Unit,
     onImport: () -> Unit,
     currentVersion: String,
     updateMessage: String,
@@ -1288,47 +1273,6 @@ private fun SettingsPage(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 16.dp, bottom = 24.dp),
     ) {
-        item {
-            CardBlock {
-                SectionTitle("Billing cycle")
-                Text("Choose the day each monthly billing period starts. Short months use their last day.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                var expanded by remember { mutableStateOf(false) }
-                Box {
-                    OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
-                        Text("Starts on the ${ordinal(data.cycleStartDay)} of each month")
-                    }
-                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.heightIn(max = 360.dp)) {
-                        (1..31).forEach { day ->
-                            DropdownMenuItem(
-                                text = { Text(if (day == 31) "31st (last day in short months)" else "${ordinal(day)} of each month") },
-                                onClick = { onCycleDay(day); expanded = false },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        item {
-            SettingsListCard("Categories", data.categories, categoryText, { categoryText = it }, onAddCategory, onRemoveCategory) {
-                categoryText = ""
-            }
-        }
-        item {
-            SettingsListCard("Accounts", data.accounts, accountText, { accountText = it }, onAddAccount, onRemoveAccount) {
-                accountText = ""
-            }
-        }
-        item {
-            CardBlock {
-                SectionTitle("Backup and restore")
-                Text("Export or import a JSON backup using Android's file picker. Import replaces data in this app.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onExport, modifier = Modifier.weight(1f)) { Text("Export backup") }
-                    OutlinedButton(onClick = onImport, modifier = Modifier.weight(1f)) { Text("Import backup") }
-                }
-                Text(status, Modifier.padding(top = 8.dp), color = Forest, style = MaterialTheme.typography.labelSmall)
-            }
-        }
         item {
             CardBlock {
                 SectionTitle("Android updates")
@@ -1378,7 +1322,49 @@ private fun SettingsPage(
             }
         }
         item {
-            Column(Modifier.padding(horizontal = 4.dp)) {
+                CardBlock {
+                    SectionTitle("Billing cycle")
+                    Text("Choose the day each monthly billing period starts. Short months use their last day.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    var expanded by remember { mutableStateOf(false) }
+                    Box {
+                        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) {
+                            Text("Starts on the ${ordinal(data.cycleStartDay)} of each month")
+                        }
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.heightIn(max = 360.dp)) {
+                            (1..31).forEach { day ->
+                                DropdownMenuItem(
+                                    text = { Text(if (day == 31) "31st (last day in short months)" else "${ordinal(day)} of each month") },
+                                    onClick = { onCycleDay(day); expanded = false },
+                                )
+                            }
+                        }
+                    }
+                }
+        }
+        item {
+                CardBlock {
+                    SectionTitle("Backup and restore")
+                    Text("Export a .pawbudget backup or share it through a messaging app. Imports support PawBudget backups and older JSON files.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = onExport, modifier = Modifier.weight(1f)) { Text("Export") }
+                        OutlinedButton(onClick = onShare, modifier = Modifier.weight(1f)) { Text("Share") }
+                        OutlinedButton(onClick = onImport, modifier = Modifier.weight(1f)) { Text("Import") }
+                    }
+                    Text(status, Modifier.padding(top = 8.dp), color = Forest, style = MaterialTheme.typography.labelSmall)
+                }
+        }
+        item {
+                SettingsListCard("Categories", data.categories, categoryText, { categoryText = it }, onAddCategory, onRemoveCategory) {
+                    categoryText = ""
+                }
+        }
+        item {
+                SettingsListCard("Accounts", data.accounts, accountText, { accountText = it }, onAddAccount, onRemoveAccount) {
+                    accountText = ""
+                }
+        }
+        item {
+                Column(Modifier.padding(horizontal = 4.dp)) {
                 Text("PawBudget saves your data only on this device.", color = Color.Gray, style = MaterialTheme.typography.labelSmall)
                 Text("Keep a backup before uninstalling.", color = Color.Gray, style = MaterialTheme.typography.labelSmall)
             }
