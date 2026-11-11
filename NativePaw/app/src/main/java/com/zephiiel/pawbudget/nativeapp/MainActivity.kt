@@ -36,6 +36,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -55,6 +61,8 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -129,6 +137,11 @@ private enum class Page(val label: String, val symbol: String) {
 
 private data class TransactionFilter(val label: String, val matches: (Transaction) -> Boolean)
 
+private data class BillingMoveUndo(
+    val previousPeriods: Map<String, String?>,
+    val targetPeriod: String,
+)
+
 private fun backupContents(data: TrackerData): String = JSONObject()
     .put("format", "ledger-monthly-tracker")
     .put("version", 1)
@@ -180,6 +193,7 @@ private fun PawBudgetApp(store: TrackerStore) {
     var selectedMonth by remember { mutableStateOf(cycleMonth(LocalDate.now(), data.cycleStartDay)) }
     var status by remember { mutableStateOf("All changes saved") }
     var filter by remember { mutableStateOf<TransactionFilter?>(null) }
+    var paymentTypeFilter by remember { mutableStateOf<String?>(null) }
     var transactionDialog by remember { mutableStateOf(false) }
     var editedTransaction by remember { mutableStateOf<Transaction?>(null) }
     var budgetDialog by remember { mutableStateOf(false) }
@@ -192,6 +206,7 @@ private fun PawBudgetApp(store: TrackerStore) {
     var pendingImport by remember { mutableStateOf<TrackerData?>(null) }
     var selectedPendingIds by remember { mutableStateOf(setOf<String>()) }
     var selectedTodoIds by remember { mutableStateOf(setOf<String>()) }
+    var pendingBillingMoveUndo by remember { mutableStateOf<BillingMoveUndo?>(null) }
     var confirmation by remember { mutableStateOf<Pair<String, () -> Unit>?>(null) }
     var availableUpdate by remember { mutableStateOf<NativeUpdate?>(null) }
     var updateMessage by remember { mutableStateOf("(Up-to-date)") }
@@ -224,6 +239,19 @@ private fun PawBudgetApp(store: TrackerStore) {
         } catch (error: Exception) {
             status = error.message ?: "Could not save changes."
             false
+        }
+    }
+
+    fun undoBillingMove(undo: BillingMoveUndo) {
+        val ids = undo.previousPeriods.keys
+        if (persist(data.copy(transactions = data.transactions.map { transaction ->
+                if (transaction.id in ids && transaction.billingPeriodStart == undo.targetPeriod) {
+                    transaction.copy(billingPeriodStart = undo.previousPeriods[transaction.id])
+                } else {
+                    transaction
+                }
+            }))) {
+            pendingBillingMoveUndo = null
         }
     }
 
@@ -288,6 +316,12 @@ private fun PawBudgetApp(store: TrackerStore) {
     }
     val visiblePeriodTransactions = remember(periodTransactions, data.excludedAccounts) {
         transactionsExcludingAccounts(periodTransactions, data.excludedAccounts.toSet())
+    }
+    val selectedPendingTransactions = statementPeriodTransactions.filter {
+        it.id in selectedPendingIds && it.paymentType == "credit"
+    }
+    val selectedTodos = data.todos.filter {
+        it.periodStart == periodStartLabel(selectedMonth, data.cycleStartDay) && it.id in selectedTodoIds
     }
 
     Scaffold(
@@ -391,17 +425,33 @@ private fun PawBudgetApp(store: TrackerStore) {
                     containerColor = Forest,
                     contentColor = Color.White,
                 ) { CompactAddFabContent("Budget") }
-                Page.Todo -> ExtendedFloatingActionButton(
-                    onClick = { editedTodo = null; todoDialog = true },
-                    containerColor = Forest,
-                    contentColor = Color.White,
-                ) { CompactAddFabContent("Task") }
+                Page.Todo -> if (selectedTodoIds.isEmpty()) {
+                    ExtendedFloatingActionButton(
+                        onClick = { editedTodo = null; todoDialog = true },
+                        containerColor = Forest,
+                        contentColor = Color.White,
+                    ) { CompactAddFabContent("Task") }
+                }
                 Page.Pending, Page.Settings -> Unit
             }
         },
         containerColor = Paper,
     ) { padding ->
-        when (page) {
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            AnimatedContent(
+                targetState = page,
+                transitionSpec = {
+                    if (targetState.ordinal > initialState.ordinal) {
+                        (slideInHorizontally { it } + fadeIn()) togetherWith
+                            (slideOutHorizontally { -it } + fadeOut())
+                    } else {
+                        (slideInHorizontally { -it } + fadeIn()) togetherWith
+                            (slideOutHorizontally { it } + fadeOut())
+                    }
+                },
+                label = "pageTransition",
+            ) { visiblePage ->
+                when (visiblePage) {
             Page.Overview -> OverviewPage(
                 data, visiblePeriodTransactions, selectedMonth,
                 onEditExcludedAccounts = { budgetAccountDialog = true },
@@ -409,13 +459,15 @@ private fun PawBudgetApp(store: TrackerStore) {
                 onCreditTotals = { accountTotalsPaymentType = "credit" },
                 onCategory = { category -> filter = TransactionFilter(category) { it.category == category }; page = Page.Transactions },
                 onAccount = { account -> filter = TransactionFilter(account) { it.account == account }; page = Page.Transactions },
-                modifier = Modifier.padding(padding),
+                modifier = Modifier.fillMaxSize(),
             )
             Page.Transactions -> TransactionsPage(
                 visiblePeriodTransactions, filter,
+                paymentTypeFilter = paymentTypeFilter,
+                onPaymentTypeFilter = { paymentTypeFilter = it },
                 onClearFilter = { filter = null },
                 onEdit = { editedTransaction = it; transactionDialog = true },
-                modifier = Modifier.padding(padding),
+                modifier = Modifier.fillMaxSize(),
             )
             Page.Pending -> PendingPage(
                 statementPeriodTransactions,
@@ -430,65 +482,30 @@ private fun PawBudgetApp(store: TrackerStore) {
                             .map { it.id }
                             .toSet()
                         selectedPendingIds = (selectedPendingIds - conflictingIds) + id
-                    }
+                        }
                 },
-                onClearSelection = { selectedPendingIds = emptySet() },
                 onEdit = {
-                    selectedPendingIds = emptySet()
-                    editedTransaction = it
-                    transactionDialog = true
+                        selectedPendingIds = emptySet()
+                        editedTransaction = it
+                        transactionDialog = true
                 },
-                onSetSelectedPaid = {
-                    val chosen = statementPeriodTransactions.filter { it.id in selectedPendingIds && it.paymentType == "credit" }
-                    val markPaid = chosen.firstOrNull()?.isPaid == false
-                    val ids = chosen.map { it.id }.toSet()
-                    if (ids.isNotEmpty() && persist(data.copy(transactions = data.transactions.map {
-                            if (it.id in ids) it.copy(isPaid = markPaid) else it
-                    }))) selectedPendingIds = emptySet()
-                },
-                onMoveSelectedToNextPeriod = {
-                    val targetPeriod = periodStartLabel(selectedMonth.plusMonths(1), data.cycleStartDay)
-                    val ids = statementPeriodTransactions
-                        .filter { it.id in selectedPendingIds && it.paymentType == "credit" && !it.isPaid }
-                        .map { it.id }
-                        .toSet()
-                    if (ids.isNotEmpty() && persist(data.copy(transactions = data.transactions.map {
-                            if (it.id in ids) it.copy(billingPeriodStart = targetPeriod) else it
-                    }))) selectedPendingIds = emptySet()
-                },
-                modifier = Modifier.padding(padding),
+                modifier = Modifier.fillMaxSize(),
             )
             Page.Budgets -> BudgetsPage(
                 data.budgets.filter { it.periodStart == periodStartLabel(selectedMonth, data.cycleStartDay) },
                 onEdit = { editedBudget = it; budgetDialog = true },
-                modifier = Modifier.padding(padding),
+                modifier = Modifier.fillMaxSize(),
             )
             Page.Todo -> TodoPage(
                 data.todos.filter { it.periodStart == periodStartLabel(selectedMonth, data.cycleStartDay) },
                 selectedIds = selectedTodoIds,
-                remainingBudget = budgetRemaining(
-                    data.budgets.filter { it.periodStart == periodStartLabel(selectedMonth, data.cycleStartDay) }.sumOf { it.amount },
-                    periodTransactions,
-                    data.excludedAccounts.toSet(),
-                ),
                 onSelect = { id, selected -> selectedTodoIds = if (selected) selectedTodoIds + id else selectedTodoIds - id },
-                onClearSelection = { selectedTodoIds = emptySet() },
-                onSetSelectedCompleted = {
-                    val todos = data.todos.filter {
-                        it.periodStart == periodStartLabel(selectedMonth, data.cycleStartDay) && it.id in selectedTodoIds
-                    }
-                    val completed = !todos.all { it.completed }
-                    val ids = todos.map { it.id }.toSet()
-                    if (ids.isNotEmpty() && persist(data.copy(todos = data.todos.map {
-                            if (it.id in ids) it.copy(completed = completed) else it
-                        }))) selectedTodoIds = emptySet()
-                },
                 onEdit = {
-                    selectedTodoIds = emptySet()
-                    editedTodo = it
-                    todoDialog = true
+                        selectedTodoIds = emptySet()
+                        editedTodo = it
+                        todoDialog = true
                 },
-                modifier = Modifier.padding(padding),
+                modifier = Modifier.fillMaxSize(),
             )
             Page.Settings -> SettingsPage(
                 data = data,
@@ -547,8 +564,76 @@ private fun PawBudgetApp(store: TrackerStore) {
                         }
                     }
                 },
-                modifier = Modifier.padding(padding),
+                modifier = Modifier.fillMaxSize(),
             )
+                }
+            }
+            if (page == Page.Pending && selectedPendingTransactions.isNotEmpty()) {
+                val selectionIsPaid = selectedPendingTransactions.first().isPaid
+                SelectionActionBar(
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    selectedCount = selectedPendingTransactions.size,
+                    totalAmount = selectedPendingTransactions.sumOf { it.amount },
+                    secondaryInfo = null,
+                    primaryAction = if (selectionIsPaid) "Mark unpaid" else "Mark paid",
+                    onPrimaryAction = {
+                        val markPaid = !selectionIsPaid
+                        val ids = selectedPendingTransactions.map { it.id }.toSet()
+                        if (persist(data.copy(transactions = data.transactions.map {
+                                if (it.id in ids) it.copy(isPaid = markPaid) else it
+                            }))) selectedPendingIds = emptySet()
+                    },
+                    secondaryAction = if (selectionIsPaid) null else "Next billing",
+                    onSecondaryAction = if (selectionIsPaid) null else {
+                        {
+                            val targetPeriod = periodStartLabel(selectedMonth.plusMonths(1), data.cycleStartDay)
+                            val moving = selectedPendingTransactions.filterNot { it.isPaid }
+                            val undo = BillingMoveUndo(
+                                previousPeriods = moving.associate { it.id to it.billingPeriodStart },
+                                targetPeriod = targetPeriod,
+                            )
+                            if (moving.isNotEmpty() && persist(data.copy(transactions = data.transactions.map {
+                                    if (it.id in undo.previousPeriods) it.copy(billingPeriodStart = targetPeriod) else it
+                                }))) {
+                                pendingBillingMoveUndo = undo
+                                selectedPendingIds = emptySet()
+                            }
+                        }
+                    },
+                    onClearSelection = { selectedPendingIds = emptySet() },
+                    onUndoMove = pendingBillingMoveUndo?.let { undo -> { undoBillingMove(undo) } },
+                )
+            }
+            if (page == Page.Pending && selectedPendingTransactions.isEmpty() && pendingBillingMoveUndo != null) {
+                UndoMoveButton(
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    onClick = { pendingBillingMoveUndo?.let(::undoBillingMove) },
+                )
+            }
+            if (page == Page.Todo && selectedTodos.isNotEmpty()) {
+                val remainingBudget = budgetRemaining(
+                    data.budgets.filter { it.periodStart == periodStartLabel(selectedMonth, data.cycleStartDay) }.sumOf { it.amount },
+                    periodTransactions,
+                    data.excludedAccounts.toSet(),
+                )
+                SelectionActionBar(
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    selectedCount = selectedTodos.size,
+                    totalAmount = selectedTodos.sumOf { it.amount ?: 0.0 },
+                    secondaryInfo = "Budget after tasks · ${money(budgetAfterSelectedTodos(remainingBudget, selectedTodos))}",
+                    primaryAction = if (selectedTodos.all { it.completed }) "Mark not done" else "Mark done",
+                    onPrimaryAction = {
+                        val completed = !selectedTodos.all { it.completed }
+                        val ids = selectedTodos.map { it.id }.toSet()
+                        if (persist(data.copy(todos = data.todos.map {
+                                if (it.id in ids) it.copy(completed = completed) else it
+                            }))) selectedTodoIds = emptySet()
+                    },
+                    secondaryAction = null,
+                    onSecondaryAction = null,
+                    onClearSelection = { selectedTodoIds = emptySet() },
+                )
+            }
         }
     }
 
@@ -688,6 +773,7 @@ private fun PawBudgetApp(store: TrackerStore) {
                 TextButton(onClick = {
                     pendingImport?.let { imported ->
                         if (persist(imported)) {
+                            pendingBillingMoveUndo = null
                             selectedMonth = cycleMonth(LocalDate.now(), imported.cycleStartDay)
                             filter = null
                             selectedPendingIds = emptySet()
@@ -994,18 +1080,39 @@ private fun ChartBar(name: String, amount: Double, maximum: Double, color: Color
 private fun TransactionsPage(
     transactions: List<Transaction>,
     filter: TransactionFilter?,
+    paymentTypeFilter: String?,
+    onPaymentTypeFilter: (String?) -> Unit,
     onClearFilter: () -> Unit,
     onEdit: (Transaction) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val visible = if (filter == null) transactions else transactions.filter(filter.matches)
+    val visible = transactions.filter { transaction ->
+        (filter == null || filter.matches(transaction)) &&
+            (paymentTypeFilter == null || transaction.paymentType == paymentTypeFilter)
+    }
     LazyColumn(
         modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 16.dp, bottom = 120.dp),
     ) {
         item {
-            SectionTitle("All transactions")
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                SectionTitle("All Transactions", modifier = Modifier.weight(1f))
+                FilterChip(
+                    selected = paymentTypeFilter == null || paymentTypeFilter == "paid",
+                    onClick = { onPaymentTypeFilter(if (paymentTypeFilter == "paid") null else "paid") },
+                    label = { Text("Cash") },
+                )
+                FilterChip(
+                    selected = paymentTypeFilter == null || paymentTypeFilter == "credit",
+                    onClick = { onPaymentTypeFilter(if (paymentTypeFilter == "credit") null else "credit") },
+                    label = { Text("Credit") },
+                )
+            }
             filter?.let {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Filtered: ${it.label}", color = Forest, modifier = Modifier.weight(1f))
@@ -1013,7 +1120,14 @@ private fun TransactionsPage(
                 }
             }
         }
-        if (visible.isEmpty()) item { EmptyMessage(if (filter == null) "No transactions in this billing period." else "No matching transactions.") }
+        if (visible.isEmpty()) {
+            item {
+                EmptyMessage(
+                    if (filter == null && paymentTypeFilter == null) "No transactions in this billing period."
+                    else "No matching transactions.",
+                )
+            }
+        }
         items(visible, key = { it.id }) { transaction ->
             TransactionCard(transaction) { onEdit(transaction) }
         }
@@ -1044,49 +1158,19 @@ private fun PendingPage(
     transactions: List<Transaction>,
     selectedIds: Set<String>,
     onSelect: (String, Boolean) -> Unit,
-    onClearSelection: () -> Unit,
     onEdit: (Transaction) -> Unit,
-    onSetSelectedPaid: () -> Unit,
-    onMoveSelectedToNextPeriod: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val unpaid = transactions.filter { it.paymentType == "credit" && !it.isPaid }
     val paid = transactions.filter { it.paymentType == "credit" && it.isPaid }
-    val chosen = unpaid.filter { it.id in selectedIds } + paid.filter { it.id in selectedIds }
     LazyColumn(
         modifier.fillMaxSize().padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 16.dp, bottom = 24.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 16.dp, bottom = 120.dp),
     ) {
         item {
             SectionTitle("Pending payments")
             Text("${unpaid.size} unpaid · ${money(unpaid.sumOf { it.amount })}", color = Color.Gray)
-        }
-        if (chosen.isNotEmpty()) {
-            item {
-                val selectionIsPaid = chosen.first().isPaid
-                CardBlock {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("${chosen.size} selected", fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "Total amount · ${money(chosen.sumOf { it.amount })}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray,
-                            )
-                        }
-                        TextButton(onClick = onClearSelection) { Text("Deselect All") }
-                    }
-                    Button(onClick = onSetSelectedPaid, modifier = Modifier.padding(top = 8.dp)) {
-                        Text(if (selectionIsPaid) "Mark selected unpaid" else "Mark selected paid")
-                    }
-                    if (!selectionIsPaid) {
-                        OutlinedButton(onClick = onMoveSelectedToNextPeriod, modifier = Modifier.fillMaxWidth()) {
-                            Text("Move selected to next billing period")
-                        }
-                    }
-                }
-            }
         }
         if (unpaid.isEmpty()) item { EmptyMessage("No pending credit payments for this billing period.") }
         items(unpaid, key = { "unpaid-${it.id}" }) { item ->
@@ -1178,10 +1262,7 @@ private fun BudgetsPage(
 private fun TodoPage(
     todos: List<PeriodTodo>,
     selectedIds: Set<String>,
-    remainingBudget: Double,
     onSelect: (String, Boolean) -> Unit,
-    onClearSelection: () -> Unit,
-    onSetSelectedCompleted: () -> Unit,
     onEdit: (PeriodTodo) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1193,32 +1274,6 @@ private fun TodoPage(
         item {
             SectionTitle("To-do List")
             Text("${todos.count { !it.completed }} remaining · ${todos.count { it.completed }} completed", color = Color.Gray)
-        }
-        val selected = todos.filter { it.id in selectedIds }
-        if (selected.isNotEmpty()) {
-            item {
-                CardBlock {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("${selected.size} selected", fontWeight = FontWeight.SemiBold)
-                            Text(
-                                "Total amount · ${money(selected.sumOf { it.amount ?: 0.0 })}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color.Gray,
-                            )
-                            Text(
-                                "Budget after selected tasks · ${money(budgetAfterSelectedTodos(remainingBudget, selected))}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Forest,
-                            )
-                        }
-                        TextButton(onClick = onClearSelection) { Text("Deselect All") }
-                    }
-                    Button(onClick = onSetSelectedCompleted, modifier = Modifier.padding(top = 8.dp)) {
-                        Text(if (selected.all { it.completed }) "Mark selected not done" else "Mark selected done")
-                    }
-                }
-            }
         }
         if (todos.isEmpty()) item { EmptyMessage("No tasks for this billing period yet. Add one to get started.") }
         items(todos.sortedBy { it.completed }, key = { it.id }) { todo ->
@@ -1643,8 +1698,93 @@ private fun CardBlock(
 }
 
 @Composable
-private fun SectionTitle(title: String) {
-    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+private fun SectionTitle(title: String, modifier: Modifier = Modifier) {
+    Text(title, modifier = modifier, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+}
+
+@Composable
+private fun SelectionActionBar(
+    modifier: Modifier = Modifier,
+    selectedCount: Int,
+    totalAmount: Double,
+    secondaryInfo: String?,
+    primaryAction: String,
+    onPrimaryAction: () -> Unit,
+    secondaryAction: String?,
+    onSecondaryAction: (() -> Unit)?,
+    onClearSelection: () -> Unit,
+    onUndoMove: (() -> Unit)? = null,
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFFFFFEFA),
+        shadowElevation = 8.dp,
+        tonalElevation = 4.dp,
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("$selectedCount selected", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text("Total · ${money(totalAmount)}", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            }
+            secondaryInfo?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, color = Forest)
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                TextButton(
+                    onClick = onPrimaryAction,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                ) {
+                    Text(primaryAction, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                }
+                if (secondaryAction != null && onSecondaryAction != null) {
+                    TextButton(
+                        onClick = onSecondaryAction,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                    ) {
+                        Text(secondaryAction, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
+                }
+                TextButton(
+                    onClick = onClearSelection,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                ) {
+                    Text("Deselect all", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                }
+            }
+            onUndoMove?.let {
+                UndoMoveButton(
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                    onClick = it,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UndoMoveButton(modifier: Modifier = Modifier, onClick: () -> Unit) {
+    FilterChip(
+        selected = true,
+        onClick = onClick,
+        label = { Text("Undo Move") },
+        colors = FilterChipDefaults.filterChipColors(
+            selectedContainerColor = Color(0xFFF4D8D4),
+            selectedLabelColor = Color(0xFF9D5145),
+        ),
+        modifier = modifier,
+    )
 }
 
 @Composable
